@@ -1,0 +1,25 @@
+# Files that fail to type-check against the pinned release purely because upstream master
+# runs ahead of it -- closed APIs that moved after 262.8190.0 (fileChanges, findPsiDirectory,
+# LatestCompletionSessionComponent, ...) and platform classes added after it
+# (MoveDirectoryWithClassesProcessorUtil).
+#
+# Regenerate after a release bump; shrinking this list is the point.
+# Captured against kotlin-lsp @ 2026-07-21, dist 262.8190.0.
+
+api.features/src/com/jetbrains/ls/api/features/codeActions/LSCodeActions.kt
+api.features/src/com/jetbrains/ls/api/features/diagnostics/LSDiagnostic.kt
+api.features/src/com/jetbrains/ls/api/features/LSConfigurationData.kt
+api.features/src/com/jetbrains/ls/api/features/LSConfigurationEntry.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/callHierarchy/LSCallHierarchyProviderBase.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/codeLens/LSJvmRunMainCodeLensProvider.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/completion/LSCompletionProviderHelper.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/configuration/LSCommonConfiguration.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/diagnostics/LSInspectionManager.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/inlayHints/LSInlayHintsProviderBase.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/modcommands/LSChooseActionCommandDescriptorProvider.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/modcommands/ModCommandData.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/move/LSMoveFileProviderBase.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/processors/MoveDirectoryProcessor.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/processors/refactoringUtils.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/progress/LSHeadlessTaskSupport.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/utils/targets.kt

@@ -1,0 +1,9 @@
+build/
+.gradle/
+.intellijPlatform/
+.kotlin/
+out/
+local.properties
+
+# The symlink itself is committed (defaults to ../kotlin-lsp); the checkout is not.
+/kotlin-lsp/*
