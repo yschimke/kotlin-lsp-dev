@@ -39,6 +39,10 @@ rm -rf "$CLASSES" "$OUT/services-all.txt"; mkdir -p "$CLASSES"; : > "$OUT/servic
 
 compile_feature() {
   local feat="$1" name; name="$(basename "$feat")"
+  if [[ -f "$feat/PR_ONLY" ]]; then
+    echo "[build-server]   ⊘ $name PR-ONLY — $(head -1 "$feat/PR_ONLY")"
+    return 0
+  fi
   mapfile -t srcs < <(find "$feat/core" "$feat/ext" -name '*.kt' 2>/dev/null)
   [[ ${#srcs[@]} -eq 0 ]] && return 0
   local fout="$OUT/feat-$name"; rm -rf "$fout"; mkdir -p "$fout"

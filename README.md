@@ -45,9 +45,18 @@ directory — the build drops it with no other change.
 
 | Feature | On `262.8190.0` | Verified |
 |---|---|---|
-| **Type hierarchy** (`textDocument/typeHierarchy`) — new | ✅ runnable | unit tests + live stdio round-trip (prepare + supertypes/subtypes) |
-| **Region folding** (`//region`…`//endregion`) — enhancement | ✅ runnable | unit tests + live stdio round-trip (folds merge with built-in) |
+| **Type hierarchy** (`textDocument/typeHierarchy`) — new | ✅ runnable | unit tests + live stdio (prepare + supertypes/subtypes) |
+| **Region folding** (`//region`…`//endregion`) — enhancement | ✅ runnable | unit tests + live stdio (folds merge with built-in) |
+| **Convert to expression body** — enhancement (code action) | ✅ runnable | unit tests + live stdio (action + edit, merged with built-ins) |
 | **Code vision** code lenses (usages / implementations / run-test) — new | ⊘ release-gated — `codeLens` API postdates the release | unit tests + PR-ready adapter |
+| **Closing-brace inlay hints** — enhancement | ⊘ inlay dispatch isn't additive (needs upstream merge) | unit tests + PR-ready adapter |
+
+**Why some features aren't runnable here** — two hard platform limits, mapped and documented
+per feature: (1) a feature's LSP API may **postdate** the newest public release (there is no
+newer server to pin), and (2) some request types dispatch to a **single** provider rather than
+merging, so they can't be enhanced by *adding* a provider (folding, code lens, and code actions
+merge; inlay hints do not). Both kinds are carried unit-tested + PR-ready and activate once the
+constraint lifts.
 
 ## Build & apply
 
