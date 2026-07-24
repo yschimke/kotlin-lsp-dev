@@ -14,8 +14,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)"
 DIST_SRC="$ROOT/build/dist/kotlin-server-$VERSION"
 KOTLINC="$ROOT/build/kotlinc/bin/kotlinc"
-# the release ships its own JBR; use it for jar/java so the toolchain matches the server
-JAR="$DIST_SRC/jbr/bin/jar"
+# `jar` tool (the release JBR is a JRE without it) — prefer JAVA_HOME, fall back to PATH
+JAR="${JAVA_HOME:-/usr/lib/jvm/java-25-openjdk}/bin/jar"
+[[ -x "$JAR" ]] || JAR="$(command -v jar)"
 OUT="$ROOT/build/server"
 STAGE="$OUT/kotlin-server-$VERSION-enhanced"
 EXT_JAR_NAME="language-server.overlay.jar"
@@ -33,36 +34,34 @@ CLASSES="$OUT/classes"
 rm -rf "$CLASSES"; mkdir -p "$CLASSES"
 
 echo "[build-server] compiling overlay against $VERSION ..."
-mapfile -t SRCS < <(find "$ROOT/overlay/core" "$ROOT/overlay/ext" -name '*.kt')
+mapfile -t SRCS < <(find "$ROOT/overlay" -name '*.kt')
+echo "[build-server] $(printf '%s\n' "${SRCS[@]}" | wc -l) overlay source files"
+SER_PLUGIN="$(dirname "$KOTLINC")/../lib/kotlinx-serialization-compiler-plugin.jar"
 "$KOTLINC" -cp "$CP" \
   -jvm-target 25 -language-version 2.4 -api-version 2.4 \
+  -Xplugin="$SER_PLUGIN" \
   -Xcontext-parameters -Xjvm-default=all \
   -opt-in=org.jetbrains.kotlin.analysis.api.KaExperimentalApi \
   -opt-in=org.jetbrains.kotlin.analysis.api.KaIdeApi \
   -opt-in=org.jetbrains.kotlin.analysis.api.KaContextParameterApi \
   -nowarn -d "$CLASSES" "${SRCS[@]}"
 
-# --- 2. assemble the overlay extension jar -----
-EXT_JAR="$OUT/$EXT_JAR_NAME"
-"$JAR" cf "$EXT_JAR" -C "$CLASSES" .
-echo "[build-server] overlay extension jar: $(du -h "$EXT_JAR" | cut -f1)"
-
-# --- 3. stage a copy of the distribution and drop the extension jar into the kotlin plugin ---
+# --- 2. stage a copy of the distribution --------------------------------------------------
 echo "[build-server] staging enhanced distribution ..."
 rm -rf "$STAGE"
 cp -r "$DIST_SRC" "$STAGE"
 MODULES_DIR="$STAGE/plugins/kotlin.lsp/lib/modules"
-cp "$EXT_JAR" "$MODULES_DIR/$EXT_JAR_NAME"
-
-# append our extension to the kotlin.lsp jar's services file (ServiceLoader scans the classpath;
-# the simplest reliable location is the jar that already declares the service). Preserve the
-# existing entries and the trailing newline.
 KOTLIN_JAR="$MODULES_DIR/language-server.api.features.impl.kotlin.jar"
+
+# --- 3. inject overlay classes + the services entry INTO the kotlin.lsp module jar ----------
+# The class must live in a jar the server's ServiceLoader actually scans; the shipped kotlin
+# module jar (which already declares the service) is the reliable, verified location.
+( cd "$CLASSES" && "$JAR" uf "$KOTLIN_JAR" . )
 TMP_SVC="$OUT/services.txt"
 { unzip -p "$KOTLIN_JAR" "$SERVICES"; echo; echo "overlay.OverlayLanguageServerExtension"; } \
   | awk 'NF' > "$TMP_SVC"
 ( cd "$OUT" && mkdir -p "$(dirname "$SERVICES")" && cp "$TMP_SVC" "$SERVICES" && "$JAR" uf "$KOTLIN_JAR" "$SERVICES" )
-echo "[build-server] registered overlay extension in $(basename "$KOTLIN_JAR")"
+echo "[build-server] injected $(find "$CLASSES" -name '*.class' | wc -l) overlay classes + services entry into $(basename "$KOTLIN_JAR")"
 
 # --- 4. repackage as a tarball ---------------------------------------------------------------
 TARBALL="$OUT/kotlin-server-$VERSION-enhanced.tar.gz"

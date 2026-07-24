@@ -52,7 +52,10 @@ kotlin {
     jvmToolchain(21)
     compilerOptions {
         freeCompilerArgs.add("-Xcontext-parameters")
-        optIn.add("org.jetbrains.kotlin.analysis.api.KaExperimentalApi")
+        optIn.addAll(
+            "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
+            "org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt",
+        )
     }
 }
 
