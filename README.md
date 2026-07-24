@@ -14,7 +14,8 @@ manipulation.
 > **We publish only our own Apache-2.0 code** (`language-server.overlay-*.jar`), never JetBrains'
 > proprietary server binaries. You download the official server yourself and apply the overlay
 > locally with `scripts/install-overlay.sh`. The full "enhanced tarball" that `build-server.sh`
-> produces is a **local** convenience for testing and is not redistributable.
+> produces is a **local** convenience for testing and is not redistributable. See
+> [Licensing](#licensing) for the full picture.
 
 ## Layout
 
@@ -78,3 +79,37 @@ Point your editor at the patched server (`bin/intellij-server --stdio`, or VS Co
 
 JDK 21+ for Gradle; JDK 25 for `build-server.sh`/`compile-check.sh` (upstream targets JVM 25,
 and the scripts fetch their own kotlinc). The release download is ~376 MB.
+
+## Licensing
+
+This is the part to read before publishing or redistributing anything.
+
+**This project's own code** — everything under `overlay/`, `scripts/`, `src/`, and the build
+files — is licensed **Apache 2.0** (see [LICENSE](LICENSE)). The distributable artifact
+`build/server/language-server.overlay-*.jar` contains **only these classes** — no JetBrains
+code — so it is safe to publish. Our GitHub releases attach only this jar.
+
+> **Note on the source headers.** The `.kt` files carry the upstream header
+> `// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.`
+> **on purpose**: each feature is written to be submitted to kotlin-lsp as a PR *verbatim*, and
+> that repo requires this header on every file (contributions are Apache 2.0). It is not a claim
+> that JetBrains currently holds copyright in this repo. If you decide to keep a file as
+> overlay-only and never upstream it, change its header to your own attribution.
+
+**The upstream server is NOT ours to redistribute.** [Kotlin/kotlin-lsp](https://github.com/Kotlin/kotlin-lsp)
+is Apache 2.0 for its open sources (the `upstream/` submodule), but the *shipped server* is, in
+its own words, "based on … proprietary parts of JetBrains Air and Fleet products, making it
+partially closed-source." So:
+
+- **We never redistribute JetBrains binaries.** You download the official server yourself from
+  the [Kotlin/kotlin-lsp releases](https://github.com/Kotlin/kotlin-lsp/releases) (subject to
+  JetBrains' own terms) and apply our overlay to *your* copy with `scripts/install-overlay.sh`.
+- **`build-server.sh` fetches the official release and compiles our code against its jars
+  locally.** The `…-enhanced.tar.gz` it produces bundles JetBrains' proprietary jars, so it is a
+  **local test artifact only — do not publish or redistribute it.** Only the overlay jar is
+  distributable.
+- **`compile-check.sh`** likewise only compiles against the downloaded release locally; it ships
+  nothing.
+
+**In short:** publish the overlay jar (ours, Apache 2.0); never publish the enhanced server,
+the release download, or anything containing `com.jetbrains.*` binaries.
