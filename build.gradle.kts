@@ -16,6 +16,9 @@ dependencies {
     intellijPlatform {
         intellijIdea(providers.gradleProperty("overlay.platformVersion"))
         bundledPlugin("org.jetbrains.kotlin")
+        // Java PSI (PsiClass, ClassInheritorsSearch, Kotlin light classes) — the real
+        // features-impl/kotlin module depends on java-psi-api; type hierarchy needs it.
+        bundledPlugin("com.intellij.java")
         testFramework(TestFrameworkType.Platform)
     }
     testImplementation("junit:junit:4.13.2")
@@ -48,6 +51,21 @@ val upstreamSources = buildList {
 
 logger.lifecycle("[kotlin-lsp-dev] move feature present in checkout: $moveFeaturePresent")
 
+/**
+ * Pure-PSI computation cores of the feature/lsp-additions providers. Each is written free of
+ * closed LSP/server types so it compiles against the plain IntelliJ platform + bundled Kotlin
+ * plugin and can be unit-tested here. The LSP adapters that wrap them are verified separately by
+ * scripts/compile-check.sh (against the release jars) and run via scripts/patch-server.sh.
+ *
+ * Only included when present, so the overlay stays green against refs that lack the branch.
+ */
+val featureComputations = listOf(
+    "com/jetbrains/ls/api/features/impl/kotlin/typeHierarchy/KotlinTypeHierarchyComputation.kt",
+    "com/jetbrains/ls/api/features/impl/kotlin/codeVision/KotlinCodeVisionComputation.kt",
+).filter { file("kotlin-lsp/features-impl/kotlin/src/$it").exists() }
+
+logger.lifecycle("[kotlin-lsp-dev] feature computations present: ${featureComputations.size}")
+
 sourceSets {
     main {
         kotlin {
@@ -55,17 +73,26 @@ sourceSets {
                 listOf(
                     file("shims"),
                     file("kotlin-lsp/features-impl/common/src"),
+                    file("kotlin-lsp/features-impl/kotlin/src"),
                 )
             )
-            // One shared filter across both roots. The shim file name is unique to `shims/`
-            // and the upstream file names are unique to the checkout, so there is no clash.
-            setIncludes(upstreamSources)
+            // One shared filter across all roots. Shim, upstream, and feature file names are each
+            // unique to their root, so there is no clash.
+            setIncludes(upstreamSources + featureComputations)
         }
     }
-    // The move test imports MoveFilesProcessor, so it can only compile where that class is
-    // built. Drop it when the ref lacks the feature; the spike test still runs.
+    // Feature tests import code that only exists on feature/lsp-additions. Drop each when its
+    // computation is absent from the checked-out ref, so the overlay stays green against any ref
+    // (e.g. upstream main). The spike test always runs.
     if (!moveFeaturePresent) {
         test { kotlin.exclude("**/MoveKotlinFileTest.kt") }
+    }
+    fun computationPresent(path: String) = featureComputations.any { it.endsWith(path) }
+    if (!computationPresent("typeHierarchy/KotlinTypeHierarchyComputation.kt")) {
+        test { kotlin.exclude("**/TypeHierarchyTest.kt") }
+    }
+    if (!computationPresent("codeVision/KotlinCodeVisionComputation.kt")) {
+        test { kotlin.exclude("**/CodeVisionTest.kt") }
     }
 }
 
