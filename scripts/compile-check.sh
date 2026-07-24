@@ -15,14 +15,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LSP="$ROOT/kotlin-lsp"
+LSP="$ROOT/upstream"
 VERSION="$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)"
 DIST="$ROOT/build/dist/kotlin-server-$VERSION"
 KOTLINC_VERSION=2.4.10
 KOTLINC="$ROOT/build/kotlinc/bin/kotlinc"
 BASELINE="$ROOT/compile-check-baseline.txt"
 
-[[ -d "$LSP/features-impl" ]] || { echo "error: $LSP is not a kotlin-lsp checkout (fix the symlink)" >&2; exit 1; }
+[[ -d "$LSP/features-impl" ]] || { echo "error: $LSP not populated — run: git submodule update --init upstream" >&2; exit 1; }
 
 "$ROOT/scripts/fetch-dist.sh"
 
