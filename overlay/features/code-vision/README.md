@@ -1,6 +1,9 @@
 # Code Vision code lenses (`textDocument/codeLens`)
 
-**Status:** carried in overlay — not yet submitted upstream.
+**Status:** PR-ready + unit-tested, but **not runnable on the current pinned release**
+(`262.8190.0`) — the `LSCodeLensProvider` API postdates it. `build-server.sh` skips this
+feature automatically and it will activate once a release ships the codeLens API. Submit
+upstream as a PR meanwhile.
 _Tracking: (add the upstream PR/issue URL here once opened)_
 
 ## What this adds

@@ -28,40 +28,64 @@ WANT_VSIX=0
 "$ROOT/scripts/fetch-dist.sh"
 [[ -x "$KOTLINC" ]] || { echo "error: kotlinc missing — run scripts/compile-check.sh once to fetch it" >&2; exit 1; }
 
-# --- 1. compile the overlay (cores + adapters + extension) against the shipped jars ----------
+# --- 1. compile each feature independently against the shipped jars --------------------------
+# A feature whose LSP API isn't in the pinned release (e.g. codeLens postdates 262.8190) simply
+# fails to compile and is SKIPPED — it stays PR-ready + unit-tested and auto-activates once a
+# release ships its API. This is the release-gating that makes the overlay safe across versions.
 CP="$(find "$DIST_SRC/lib" "$DIST_SRC/plugins" "$DIST_SRC/modules" -name '*.jar' | tr '\n' ':')"
-CLASSES="$OUT/classes"
-rm -rf "$CLASSES"; mkdir -p "$CLASSES"
-
-echo "[build-server] compiling overlay against $VERSION ..."
-mapfile -t SRCS < <(find "$ROOT/overlay" -name '*.kt')
-echo "[build-server] $(printf '%s\n' "${SRCS[@]}" | wc -l) overlay source files"
 SER_PLUGIN="$(dirname "$KOTLINC")/../lib/kotlinx-serialization-compiler-plugin.jar"
-"$KOTLINC" -cp "$CP" \
-  -jvm-target 25 -language-version 2.4 -api-version 2.4 \
-  -Xplugin="$SER_PLUGIN" \
-  -Xcontext-parameters -Xjvm-default=all \
-  -opt-in=org.jetbrains.kotlin.analysis.api.KaExperimentalApi \
-  -opt-in=org.jetbrains.kotlin.analysis.api.KaIdeApi \
-  -opt-in=org.jetbrains.kotlin.analysis.api.KaContextParameterApi \
-  -nowarn -d "$CLASSES" "${SRCS[@]}"
+CLASSES="$OUT/classes"
+rm -rf "$CLASSES" "$OUT/services-all.txt"; mkdir -p "$CLASSES"; : > "$OUT/services-all.txt"
 
-# --- 2. stage a copy of the distribution --------------------------------------------------
+compile_feature() {
+  local feat="$1" name; name="$(basename "$feat")"
+  mapfile -t srcs < <(find "$feat/core" "$feat/ext" -name '*.kt' 2>/dev/null)
+  [[ ${#srcs[@]} -eq 0 ]] && return 0
+  local fout="$OUT/feat-$name"; rm -rf "$fout"; mkdir -p "$fout"
+  if "$KOTLINC" -cp "$CP" -jvm-target 25 -language-version 2.4 -api-version 2.4 \
+      -Xplugin="$SER_PLUGIN" -Xcontext-parameters -Xjvm-default=all \
+      -opt-in=org.jetbrains.kotlin.analysis.api.KaExperimentalApi \
+      -opt-in=org.jetbrains.kotlin.analysis.api.KaIdeApi \
+      -opt-in=org.jetbrains.kotlin.analysis.api.KaContextParameterApi \
+      -nowarn -d "$fout" "${srcs[@]}" 2>"$OUT/feat-$name.log"; then
+    cp -r "$fout/." "$CLASSES/"
+    [[ -f "$feat/resources/$SERVICES" ]] && cat "$feat/resources/$SERVICES" >> "$OUT/services-all.txt"
+    echo "[build-server]   ✓ $name (runnable on $VERSION)"
+  else
+    echo "[build-server]   ⊘ $name SKIPPED — LSP API not in $VERSION (PR-ready, not runnable here; see build/feat-$name.log)"
+  fi
+}
+
+echo "[build-server] compiling features against $VERSION ..."
+for feat in "$ROOT"/overlay/features/*/; do compile_feature "$feat"; done
+FEATURE_CLASSES="$(find "$CLASSES" -name '*.class' | wc -l)"
+[[ "$FEATURE_CLASSES" -gt 0 ]] || { echo "error: no feature compiled against $VERSION" >&2; exit 1; }
+
+# --- 1b. package the DISTRIBUTABLE overlay jar (our Apache-2.0 classes only) ------------------
+# This is the only artifact safe to publish: it contains no JetBrains binaries. Users apply it
+# to a server they download themselves via scripts/install-overlay.sh.
+OVERLAY_JAR="$OUT/language-server.overlay-$VERSION.jar"
+OVJ="$OUT/overlay-jar"; rm -rf "$OVJ"; mkdir -p "$OVJ/$(dirname "$SERVICES")"
+cp -r "$CLASSES/." "$OVJ/"
+awk 'NF' "$OUT/services-all.txt" > "$OVJ/$SERVICES"
+( cd "$OVJ" && "$JAR" cf "$OVERLAY_JAR" . )
+echo "[build-server] distributable overlay jar: $OVERLAY_JAR ($(du -h "$OVERLAY_JAR" | cut -f1))"
+
+# --- 2. stage a copy of the distribution (LOCAL test artifact — do NOT publish) --------------
 echo "[build-server] staging enhanced distribution ..."
 rm -rf "$STAGE"
 cp -r "$DIST_SRC" "$STAGE"
 MODULES_DIR="$STAGE/plugins/kotlin.lsp/lib/modules"
 KOTLIN_JAR="$MODULES_DIR/language-server.api.features.impl.kotlin.jar"
 
-# --- 3. inject overlay classes + the services entry INTO the kotlin.lsp module jar ----------
-# The class must live in a jar the server's ServiceLoader actually scans; the shipped kotlin
+# --- 3. inject overlay classes + the services entries INTO the kotlin.lsp module jar --------
+# The classes must live in a jar the server's ServiceLoader actually scans; the shipped kotlin
 # module jar (which already declares the service) is the reliable, verified location.
 ( cd "$CLASSES" && "$JAR" uf "$KOTLIN_JAR" . )
 TMP_SVC="$OUT/services.txt"
-{ unzip -p "$KOTLIN_JAR" "$SERVICES"; echo; echo "overlay.OverlayLanguageServerExtension"; } \
-  | awk 'NF' > "$TMP_SVC"
+{ unzip -p "$KOTLIN_JAR" "$SERVICES"; echo; cat "$OUT/services-all.txt"; } | awk 'NF' > "$TMP_SVC"
 ( cd "$OUT" && mkdir -p "$(dirname "$SERVICES")" && cp "$TMP_SVC" "$SERVICES" && "$JAR" uf "$KOTLIN_JAR" "$SERVICES" )
-echo "[build-server] injected $(find "$CLASSES" -name '*.class' | wc -l) overlay classes + services entry into $(basename "$KOTLIN_JAR")"
+echo "[build-server] injected $FEATURE_CLASSES overlay classes + $(grep -c . "$OUT/services-all.txt") extension(s) into $(basename "$KOTLIN_JAR")"
 
 # --- 4. repackage as a tarball ---------------------------------------------------------------
 TARBALL="$OUT/kotlin-server-$VERSION-enhanced.tar.gz"

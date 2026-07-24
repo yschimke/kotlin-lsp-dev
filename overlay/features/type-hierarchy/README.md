@@ -1,6 +1,8 @@
 # Type Hierarchy (`textDocument/typeHierarchy`)
 
-**Status:** carried in overlay — not yet submitted upstream.
+**Status:** ✅ runnable in the enhanced build (verified over stdio against
+`262.8190.0`: advertises `typeHierarchyProvider`, `prepare` + `supertypes` return correct
+results). Not yet submitted upstream.
 _Tracking: (add the upstream PR/issue URL here once opened)_
 
 ## What this adds
