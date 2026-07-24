@@ -45,8 +45,9 @@ directory — the build drops it with no other change.
 
 | Feature | On `262.8190.0` | Verified |
 |---|---|---|
-| **Type hierarchy** (`textDocument/typeHierarchy`) | ✅ runnable | unit tests + live stdio round-trip (prepare + supertypes) |
-| **Code vision** code lenses (usages / implementations / run-test) | ⊘ release-gated — `codeLens` API postdates the release | unit tests + PR-ready adapter |
+| **Type hierarchy** (`textDocument/typeHierarchy`) — new | ✅ runnable | unit tests + live stdio round-trip (prepare + supertypes/subtypes) |
+| **Region folding** (`//region`…`//endregion`) — enhancement | ✅ runnable | unit tests + live stdio round-trip (folds merge with built-in) |
+| **Code vision** code lenses (usages / implementations / run-test) — new | ⊘ release-gated — `codeLens` API postdates the release | unit tests + PR-ready adapter |
 
 ## Build & apply
 
