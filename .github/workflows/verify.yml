@@ -1,0 +1,98 @@
+name: verify
+
+# Reusable engine: run both overlay layers against a given kotlin-lsp checkout.
+# Called by ci.yml (this repo's own CI) and test-fork.yml (any fork/branch/PR).
+on:
+  workflow_call:
+    inputs:
+      kotlin-lsp-repo:
+        description: owner/name of the kotlin-lsp repository to test
+        type: string
+        default: Kotlin/kotlin-lsp
+      kotlin-lsp-ref:
+        description: branch, tag, or SHA to test
+        type: string
+        default: main
+      compile-check-hard:
+        description: fail the job on compile errors outside the known-skew baseline
+        type: boolean
+        default: true
+
+jobs:
+  gradle-test:
+    name: gradle test (${{ inputs.kotlin-lsp-repo }}@${{ inputs.kotlin-lsp-ref }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout overlay
+        uses: actions/checkout@v4
+
+      - name: Checkout kotlin-lsp
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.kotlin-lsp-repo }}
+          ref: ${{ inputs.kotlin-lsp-ref }}
+          path: kotlin-lsp-src
+
+      - name: Point the overlay symlink at the checkout
+        run: ln -sfn kotlin-lsp-src kotlin-lsp
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: gradle test
+        run: ./gradlew test --stacktrace --console=plain
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-test-report
+          path: build/reports/tests/test
+          if-no-files-found: ignore
+
+  compile-check:
+    name: compile-check (${{ inputs.kotlin-lsp-repo }}@${{ inputs.kotlin-lsp-ref }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout overlay
+        uses: actions/checkout@v4
+
+      - name: Checkout kotlin-lsp
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.kotlin-lsp-repo }}
+          ref: ${{ inputs.kotlin-lsp-ref }}
+          path: kotlin-lsp-src
+
+      - name: Point the overlay symlink at the checkout
+        run: ln -sfn kotlin-lsp-src kotlin-lsp
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # 25 for kotlinc (upstream targets JVM 25); 21 kept available too.
+          java-version: |
+            21
+            25
+
+      - name: Cache release distribution + kotlinc
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/dist
+            build/kotlinc
+          key: dist-${{ hashFiles('dist.properties') }}
+
+      - name: compile-check
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME_25_X64 }}
+        run: |
+          if [ "${{ inputs.compile-check-hard }}" = "true" ]; then
+            ./scripts/compile-check.sh
+          else
+            ./scripts/compile-check.sh || echo "::warning::compile-check reported errors outside the baseline (soft mode for fork testing — see log)"
+          fi

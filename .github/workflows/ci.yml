@@ -1,0 +1,15 @@
+name: ci
+
+# The overlay's own CI: prove the harness works against current upstream kotlin-lsp.
+# Against Kotlin/kotlin-lsp@main the move feature is absent (it is WIP), so this runs the
+# always-on spike test plus the full compile-check. Feature coverage lives in test-fork.yml.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+    # defaults: Kotlin/kotlin-lsp@main, compile-check hard.

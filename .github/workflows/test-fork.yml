@@ -1,0 +1,33 @@
+name: test-fork
+
+# Test any fork, branch, or PR of kotlin-lsp.
+#
+# Run it from the Actions tab (or `gh workflow run test-fork.yml -f ...`) pointing at the
+# checkout that contains the change — e.g. your own fork with the move-file branch pushed.
+# When that ref carries the move feature, the move test runs on top of the spike test.
+#
+# compile-check runs in soft mode here: an arbitrary ref may drift from the baseline captured
+# for this repo, so baseline misses are reported as warnings rather than failing the run.
+on:
+  workflow_dispatch:
+    inputs:
+      kotlin-lsp-repo:
+        description: owner/name of the kotlin-lsp fork
+        type: string
+        default: Kotlin/kotlin-lsp
+      kotlin-lsp-ref:
+        description: branch, tag, or SHA to test
+        type: string
+        required: true
+      compile-check-hard:
+        description: fail on compile errors outside the baseline
+        type: boolean
+        default: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+    with:
+      kotlin-lsp-repo: ${{ inputs.kotlin-lsp-repo }}
+      kotlin-lsp-ref: ${{ inputs.kotlin-lsp-ref }}
+      compile-check-hard: ${{ inputs.compile-check-hard }}
