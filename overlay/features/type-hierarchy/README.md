@@ -16,7 +16,7 @@ nothing for Kotlin.
 
 | Path | Role | Verified by |
 |---|---|---|
-| `core/…/typeHierarchy/KotlinTypeHierarchyComputation.kt` | pure-PSI core (super/subtypes via light classes + `ClassInheritorsSearch`) | `../../../src/test/kotlin/overlay/TypeHierarchyTest.kt` (runs in the overlay) |
+| `core/…/typeHierarchy/KotlinTypeHierarchyComputation.kt` | pure-PSI core (super/subtypes via light classes + `ClassInheritorsSearch`) | `test/TypeHierarchyTest.kt` |
 | `ext/…/LSKotlinTypeHierarchyProvider.kt` | LSP adapter implementing `LSTypeHierarchyProvider` | `scripts/compile-check.sh` + boots via `scripts/build-server.sh` |
 
 The core is deliberately free of closed LSP/server types so it unit-tests against the plain

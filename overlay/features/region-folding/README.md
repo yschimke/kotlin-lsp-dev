@@ -14,7 +14,7 @@ merges its folds with the built-in ones.
 
 | Path | Role | Verified by |
 |---|---|---|
-| `core/…/folding/RegionFoldingComputation.kt` | pairs region/endregion line comments (stack, nesting) | `src/test/kotlin/overlay/RegionFoldingTest.kt` |
+| `core/…/folding/RegionFoldingComputation.kt` | pairs region/endregion line comments (stack, nesting) | `test/RegionFoldingTest.kt` |
 | `ext/…/LSKotlinRegionFoldingProvider.kt` | `LSFoldingRangeProvider` adapter | `build-server.sh` + live stdio round-trip |
 
 ## Upstream target paths
