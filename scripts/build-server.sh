@@ -23,10 +23,19 @@ EXT_JAR_NAME="language-server.overlay.jar"
 SERVICES="META-INF/services/com.jetbrains.ls.api.features.LanguageServerExtension"
 
 WANT_VSIX=0
-[[ "${1:-}" == "--vsix" ]] && WANT_VSIX=1
+# --jar-only stops after the distributable overlay jar, skipping the ~1.3 GB staged copy of the
+# release and its tarball. That is all CI needs: it applies the jar to its own server copy with
+# install-overlay.sh, which is the path users actually take.
+JAR_ONLY=0
+case "${1:-}" in
+  --vsix) WANT_VSIX=1 ;;
+  --jar-only) JAR_ONLY=1 ;;
+  "") ;;
+  *) echo "usage: build-server.sh [--vsix | --jar-only]" >&2; exit 2 ;;
+esac
 
 "$ROOT/scripts/fetch-dist.sh"
-[[ -x "$KOTLINC" ]] || { echo "error: kotlinc missing — run scripts/compile-check.sh once to fetch it" >&2; exit 1; }
+"$ROOT/scripts/fetch-kotlinc.sh"
 
 # --- 1. compile each feature independently against the shipped jars --------------------------
 # A feature whose LSP API isn't in the pinned release (e.g. codeLens postdates 262.8190) simply
@@ -74,6 +83,11 @@ cp -r "$CLASSES/." "$OVJ/"
 awk 'NF' "$OUT/services-all.txt" > "$OVJ/$SERVICES"
 ( cd "$OVJ" && "$JAR" cf "$OVERLAY_JAR" . )
 echo "[build-server] distributable overlay jar: $OVERLAY_JAR ($(du -h "$OVERLAY_JAR" | cut -f1))"
+
+if [[ "$JAR_ONLY" == 1 ]]; then
+  echo "[build-server] --jar-only: skipping the staged enhanced distribution"
+  exit 0
+fi
 
 # --- 2. stage a copy of the distribution (LOCAL test artifact — do NOT publish) --------------
 echo "[build-server] staging enhanced distribution ..."
