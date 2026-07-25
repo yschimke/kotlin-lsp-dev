@@ -30,13 +30,18 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
-// Auto-discover each feature's computation core under overlay/features/<name>/core. Removing a
-// feature directory (e.g. once it lands upstream) drops it from the build with no other edit.
-val featureCoreDirs: List<File> =
+// Auto-discover each feature's sources under overlay/features/<name>/{core,test}. Removing a
+// feature directory (e.g. once it lands upstream) drops it from the build with no other edit —
+// which is why its tests live inside it too, rather than in a shared src/test tree where they
+// would be left behind as orphans that no longer compile.
+fun featureDirs(subdir: String): List<File> =
     file("overlay/features").listFiles()
-        ?.mapNotNull { it.resolve("core").takeIf(File::isDirectory) }
+        ?.mapNotNull { it.resolve(subdir).takeIf(File::isDirectory) }
         ?.sorted()
         ?: emptyList()
+
+val featureCoreDirs = featureDirs("core")
+val featureTestDirs = featureDirs("test")
 
 logger.lifecycle("[kotlin-lsp-dev] feature cores: ${featureCoreDirs.map { it.parentFile.name }}")
 
@@ -44,6 +49,12 @@ sourceSets {
     main {
         kotlin {
             setSrcDirs(featureCoreDirs)
+        }
+    }
+    test {
+        kotlin {
+            // src/test holds only tests that outlive any single feature (e.g. platform spikes).
+            setSrcDirs(listOf(file("src/test/kotlin")) + featureTestDirs)
         }
     }
 }

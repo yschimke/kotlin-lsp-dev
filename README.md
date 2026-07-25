@@ -22,9 +22,11 @@ manipulation.
 ```
 overlay/features/<name>/
   README.md   draft PR body + upstream target paths + status/tracking link
-  core/       pure-PSI computation, free of LSP types — unit-tested in src/test
+  core/       pure-PSI computation, free of LSP types
   ext/        LSP adapter + a per-feature LanguageServerExtension
   resources/  META-INF/services entry registering that extension
+  test/       unit tests for the core (auto-discovered by build.gradle.kts)
+  smoke/      check.py + fixture driven against a real server (runnable features only)
 upstream/       git submodule: Kotlin/kotlin-lsp pinned at the release commit
 dist.properties pinned release version (source + downloaded dist stay matched)
 scripts/
@@ -39,10 +41,16 @@ scripts/
 ## Feature lifecycle (PR-then-drop)
 
 Each feature is meant to become an upstream PR (its README carries a ready-to-submit body).
-Until it lands, the overlay carries it. **`build-server.sh` release-gates automatically**: a
-feature whose LSP API isn't in the pinned release is skipped (it stays unit-tested + PR-ready and
-activates once a release ships the API). When a release ships the feature itself, delete its
-directory — the build drops it with no other change.
+Until it lands, the overlay carries it.
+
+**Everything a feature owns lives in its own directory** — sources, unit tests, and smoke check.
+That makes a feature one self-contained unit to submit upstream, and it means deleting the
+directory drops all of it: `build.gradle.kts` discovers `core/` and `test/` per feature, and
+`smoke-test.py` discovers `smoke/check.py`, so nothing is left behind referencing code that is
+gone. When a release ships the feature itself, delete the directory — that is the whole edit.
+
+**`build-server.sh` release-gates automatically**: a feature whose LSP API isn't in the pinned
+release is skipped (it stays unit-tested + PR-ready and activates once a release ships the API).
 
 ## Current features
 
@@ -94,15 +102,25 @@ The smoke test is the end-to-end one: it builds the overlay jar, applies it to a
 way a user would, drives it over stdio, and asserts the responses. Its assertions are written to
 fail against an **un-patched** server — e.g. stock 262.8190.0 already returns a `comment`-kind
 fold over the same lines as our `//region` block, so the check requires the `region` kind
-specifically. Run it against a stock server to confirm it still discriminates.
+specifically. Run it against a stock server whenever you add or change a check:
 
-The fixture is a single Kotlin file plus a `workspace.json` for the server's JSON workspace
-importer. That module definition is load-bearing: without it the file is opened outside any
-module and index-backed queries (the inheritor search behind `typeHierarchy/subtypes`) correctly
-return nothing. Gradle or Maven fixtures would work too, at the cost of a build-tool download.
+```sh
+./scripts/smoke-test.py /path/to/stock-kotlin-server-<v>   # must fail every check
+```
 
-Features that are release-gated or non-additive (see the table above) have no smoke coverage by
-construction — the server cannot serve them — so they rely on their unit tests until they land.
+`smoke-test.py` is only the harness. Each feature supplies `smoke/check.py` defining a `FIXTURE`
+(Kotlin source) and a `check(lsp, uri)`; the harness discovers them, writes every fixture into one
+workspace, starts the server once, and runs each check against its own file. `--expect=<names>`
+narrows the run.
+
+The workspace carries a `workspace.json` for the server's JSON workspace importer. That module
+definition is load-bearing: without it the files are opened outside any module and index-backed
+queries (the inheritor search behind `typeHierarchy/subtypes`) correctly return nothing. Gradle or
+Maven fixtures would work too, at the cost of a build-tool download.
+
+Features that are release-gated or non-additive (see the table above) ship no `smoke/` directory —
+the server cannot serve them, so there is nothing to assert. Presence of `smoke/` is therefore the
+signal that a feature is actually served; those features rely on their unit tests until they land.
 
 ## Requirements
 

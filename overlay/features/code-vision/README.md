@@ -21,7 +21,7 @@ DAP configuration); these add usage/inheritance/testing affordances:
 
 | Path | Role | Verified by |
 |---|---|---|
-| `core/…/codeVision/KotlinCodeVisionComputation.kt` | pure-PSI cores (reference count, implementation/override count, `@Test` detection) | `../../../src/test/kotlin/overlay/CodeVisionTest.kt` (runs in the overlay) |
+| `core/…/codeVision/KotlinCodeVisionComputation.kt` | pure-PSI cores (reference count, implementation/override count, `@Test` detection) | `test/CodeVisionTest.kt` |
 | `ext/…` | `LSCodeLensProvider` adapters | `scripts/compile-check.sh` + boots via `scripts/build-server.sh` |
 
 ## Upstream target paths

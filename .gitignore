@@ -4,3 +4,6 @@ build/
 .kotlin/
 out/
 local.properties
+
+# smoke-test.py imports each feature's smoke/check.py
+__pycache__/

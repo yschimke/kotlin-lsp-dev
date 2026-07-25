@@ -15,7 +15,7 @@ Carried as a direct `WorkspaceEdit` (no command round-trip).
 
 | Path | Role | Verified by |
 |---|---|---|
-| `core/…/codeActions/ExpressionBodyComputation.kt` | detects convertible functions, computes the replacement | `src/test/kotlin/overlay/ExpressionBodyTest.kt` |
+| `core/…/codeActions/ExpressionBodyComputation.kt` | detects convertible functions, computes the replacement | `test/ExpressionBodyTest.kt` |
 | `ext/…/LSKotlinExpressionBodyCodeActionProvider.kt` | `LSCodeActionProvider` adapter (direct edit) | `build-server.sh` + live stdio round-trip |
 
 ## Upstream target path
