@@ -14,6 +14,9 @@ SERVER="${1:?usage: install-overlay.sh <server-dir> [overlay.jar]}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)"
 OVERLAY_JAR="${2:-$ROOT/build/server/language-server.overlay-$VERSION.jar}"
+# The injection steps run from a temp dir, so both paths must survive the cd.
+[[ -d "$SERVER" ]] && SERVER="$(cd "$SERVER" && pwd)"
+[[ -f "$OVERLAY_JAR" ]] && OVERLAY_JAR="$(cd "$(dirname "$OVERLAY_JAR")" && pwd)/$(basename "$OVERLAY_JAR")"
 SERVICES="META-INF/services/com.jetbrains.ls.api.features.LanguageServerExtension"
 JAR="${JAVA_HOME:-/usr/lib/jvm/java-25-openjdk}/bin/jar"; [[ -x "$JAR" ]] || JAR="$(command -v jar)"
 

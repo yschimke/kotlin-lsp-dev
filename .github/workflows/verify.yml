@@ -1,7 +1,8 @@
 name: verify
 
-# Reusable engine: run both overlay layers against a given kotlin-lsp checkout.
-# Called by ci.yml (this repo's own CI) and test-fork.yml (any fork/branch/PR).
+# Reusable engine: run all three verification layers (unit tests, compile-check, end-to-end
+# smoke test) against a given kotlin-lsp checkout. See "Testing" in README.md for what each
+# layer proves. Called by ci.yml (this repo's own CI) and test-fork.yml (any fork/branch/PR).
 on:
   workflow_call:
     inputs:
@@ -76,7 +77,7 @@ jobs:
           path: |
             build/dist
             build/kotlinc
-          key: dist-${{ hashFiles('dist.properties') }}
+          key: dist-${{ hashFiles('dist.properties', 'scripts/fetch-kotlinc.sh') }}
 
       - name: compile-check
         env:
@@ -87,3 +88,39 @@ jobs:
           else
             ./scripts/compile-check.sh || echo "::warning::compile-check reported errors outside the baseline (soft mode for fork testing — see log)"
           fi
+
+  smoke-test:
+    name: smoke test (build → install → LSP queries)
+    runs-on: ubuntu-latest
+    # The end-to-end check: build the overlay jar against the pinned release, apply it to a
+    # server copy exactly as a user would, then drive that server over stdio and assert it
+    # answers the feature requests. Ref-independent — it tests the shipped release, not a
+    # source checkout — so it runs identically for ci.yml and test-fork.yml.
+    steps:
+      - name: Checkout overlay
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Cache release distribution + kotlinc
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/dist
+            build/kotlinc
+          key: dist-${{ hashFiles('dist.properties', 'scripts/fetch-kotlinc.sh') }}
+
+      - name: Build the overlay jar
+        run: ./scripts/build-server.sh --jar-only
+
+      - name: Apply the overlay to a server copy
+        run: |
+          version="$(grep -E '^kotlinLspVersion=' dist.properties | cut -d= -f2)"
+          cp -r "build/dist/kotlin-server-$version" build/smoke-server
+          ./scripts/install-overlay.sh build/smoke-server
+
+      - name: Run LSP queries against the patched server
+        run: ./scripts/smoke-test.py build/smoke-server

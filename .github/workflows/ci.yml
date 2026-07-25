@@ -1,8 +1,8 @@
 name: ci
 
-# The overlay's own CI: prove the harness works against current upstream kotlin-lsp.
-# Against Kotlin/kotlin-lsp@main the move feature is absent (it is WIP), so this runs the
-# always-on spike test plus the full compile-check. Feature coverage lives in test-fork.yml.
+# The overlay's own CI: unit tests, compile-check against current upstream kotlin-lsp, and the
+# end-to-end smoke test (build the overlay → install it → drive the server over stdio).
+# test-fork.yml runs the same jobs against any other fork/branch/PR.
 on:
   push:
     branches: [main]

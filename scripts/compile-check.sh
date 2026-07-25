@@ -18,21 +18,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LSP="$ROOT/upstream"
 VERSION="$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)"
 DIST="$ROOT/build/dist/kotlin-server-$VERSION"
-KOTLINC_VERSION=2.4.10
 KOTLINC="$ROOT/build/kotlinc/bin/kotlinc"
 BASELINE="$ROOT/compile-check-baseline.txt"
 
 [[ -d "$LSP/features-impl" ]] || { echo "error: $LSP not populated — run: git submodule update --init upstream" >&2; exit 1; }
 
 "$ROOT/scripts/fetch-dist.sh"
-
-if [[ ! -x "$KOTLINC" ]]; then
-  echo "[compile-check] fetching kotlinc $KOTLINC_VERSION..."
-  mkdir -p "$ROOT/build"
-  curl -fL --progress-bar -o "$ROOT/build/kotlinc.zip" \
-    "https://github.com/JetBrains/kotlin/releases/download/v$KOTLINC_VERSION/kotlin-compiler-$KOTLINC_VERSION.zip"
-  unzip -q -o "$ROOT/build/kotlinc.zip" -d "$ROOT/build"
-fi
+"$ROOT/scripts/fetch-kotlinc.sh"
 
 # Every jar in the distribution except the modules we compile from source -- otherwise the
 # stale copies shadow the checkout.

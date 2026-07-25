@@ -29,9 +29,11 @@ upstream/       git submodule: Kotlin/kotlin-lsp pinned at the release commit
 dist.properties pinned release version (source + downloaded dist stay matched)
 scripts/
   fetch-dist.sh      download + unpack the pinned release
+  fetch-kotlinc.sh   download the pinned standalone Kotlin compiler
   build-server.sh    compile features vs the release → overlay jar (+ local enhanced tarball)
   install-overlay.sh apply the overlay jar to a server you downloaded
   compile-check.sh   type-check the pinned upstream sources vs the release (drift detection)
+  smoke-test.py      drive a patched server over stdio and assert the features answer
 ```
 
 ## Feature lifecycle (PR-then-drop)
@@ -46,9 +48,9 @@ directory — the build drops it with no other change.
 
 | Feature | On `262.8190.0` | Verified |
 |---|---|---|
-| **Type hierarchy** (`textDocument/typeHierarchy`) — new | ✅ runnable | unit tests + live stdio (prepare + supertypes/subtypes) |
-| **Region folding** (`//region`…`//endregion`) — enhancement | ✅ runnable | unit tests + live stdio (folds merge with built-in) |
-| **Convert to expression body** — enhancement (code action) | ✅ runnable | unit tests + live stdio (action + edit, merged with built-ins) |
+| **Type hierarchy** (`textDocument/typeHierarchy`) — new | ✅ runnable | unit tests + CI smoke test (prepare + supertypes/subtypes) |
+| **Region folding** (`//region`…`//endregion`) — enhancement | ✅ runnable | unit tests + CI smoke test (folds merge with built-in) |
+| **Convert to expression body** — enhancement (code action) | ✅ runnable | unit tests + CI smoke test (action + edit, merged with built-ins) |
 | **Code vision** code lenses (usages / implementations / run-test) — new | ⊘ release-gated — `codeLens` API postdates the release | unit tests + PR-ready adapter |
 | **Closing-brace inlay hints** — enhancement | ⊘ inlay dispatch isn't additive (needs upstream merge) | unit tests + PR-ready adapter |
 
@@ -70,10 +72,37 @@ cd kotlin-lsp-dev
 
 # download the official server (see github.com/Kotlin/kotlin-lsp releases), unpack it, then:
 ./scripts/install-overlay.sh /path/to/kotlin-server-<v>
+
+./scripts/smoke-test.py /path/to/kotlin-server-<v>   # end-to-end: does the patched server answer?
 ```
 
 Point your editor at the patched server (`bin/intellij-server --stdio`, or VS Code's
 `intellij.dev.serverPort` to attach to a running one).
+
+## Testing
+
+Three layers, all run by CI (`.github/workflows/ci.yml` on every push and PR). They check
+different things and none substitutes for another:
+
+| Layer | What it proves | What it can't see |
+|---|---|---|
+| `./gradlew test` | each feature's computation core is correct, against a real IntelliJ platform | nothing about the LSP adapters or the server |
+| `./scripts/compile-check.sh` | upstream master still type-checks against the pinned release — i.e. how far the closed APIs have drifted | nothing executes |
+| `./scripts/smoke-test.py` | the built overlay, applied with `install-overlay.sh`, is loaded by the real server and **answers real LSP requests** | only the features runnable on the pinned release |
+
+The smoke test is the end-to-end one: it builds the overlay jar, applies it to a server copy the
+way a user would, drives it over stdio, and asserts the responses. Its assertions are written to
+fail against an **un-patched** server — e.g. stock 262.8190.0 already returns a `comment`-kind
+fold over the same lines as our `//region` block, so the check requires the `region` kind
+specifically. Run it against a stock server to confirm it still discriminates.
+
+The fixture is a single Kotlin file plus a `workspace.json` for the server's JSON workspace
+importer. That module definition is load-bearing: without it the file is opened outside any
+module and index-backed queries (the inheritor search behind `typeHierarchy/subtypes`) correctly
+return nothing. Gradle or Maven fixtures would work too, at the cost of a build-tool download.
+
+Features that are release-gated or non-additive (see the table above) have no smoke coverage by
+construction — the server cannot serve them — so they rely on their unit tests until they land.
 
 ## Requirements
 
