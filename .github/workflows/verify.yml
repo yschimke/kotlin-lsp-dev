@@ -26,15 +26,8 @@ jobs:
       - name: Checkout overlay
         uses: actions/checkout@v4
 
-      - name: Checkout kotlin-lsp
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.kotlin-lsp-repo }}
-          ref: ${{ inputs.kotlin-lsp-ref }}
-          path: kotlin-lsp-src
-
-      - name: Point the overlay symlink at the checkout
-        run: ln -sfn kotlin-lsp-src kotlin-lsp
+      # No kotlin-lsp checkout: the Gradle build compiles the feature cores against a plain
+      # IntelliJ platform, never against the upstream sources.
 
       - uses: actions/setup-java@v4
         with:
@@ -61,15 +54,13 @@ jobs:
       - name: Checkout overlay
         uses: actions/checkout@v4
 
-      - name: Checkout kotlin-lsp
+      # Stands in for the `upstream` submodule, so an arbitrary fork/ref can be tested.
+      - name: Checkout kotlin-lsp into upstream/
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.kotlin-lsp-repo }}
           ref: ${{ inputs.kotlin-lsp-ref }}
-          path: kotlin-lsp-src
-
-      - name: Point the overlay symlink at the checkout
-        run: ln -sfn kotlin-lsp-src kotlin-lsp
+          path: upstream
 
       - uses: actions/setup-java@v4
         with:
