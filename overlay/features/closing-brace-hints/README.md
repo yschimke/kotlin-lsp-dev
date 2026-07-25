@@ -16,7 +16,7 @@ built-in type/parameter hints do not provide.
 
 | Path | Role | Verified by |
 |---|---|---|
-| `core/…/inlayHints/ClosingBraceHintsComputation.kt` | finds long bodies, labels their closing brace | `src/test/kotlin/overlay/ClosingBraceHintsTest.kt` |
+| `core/…/inlayHints/ClosingBraceHintsComputation.kt` | finds long bodies, labels their closing brace | `test/ClosingBraceHintsTest.kt` |
 | `ext/…/LSKotlinClosingBraceInlayHintsProvider.kt` | `LSInlayHintsProvider` adapter (compiles; ineffective as an overlay) | compile-check |
 
 ## Upstream target path

@@ -7,14 +7,25 @@ into the release jars, discovered by the server's own ServiceLoader, dispatched 
 request router. The Gradle tests exercise the computation cores in isolation, and
 compile-check.sh only type-checks; neither proves the server serves the feature.
 
+This file is only the harness. Each feature owns its own check under
+`overlay/features/<name>/smoke/check.py`, which must define:
+
+    FIXTURE            Kotlin source, written into the workspace as <name>.kt
+    check(lsp, uri)    returns a detail string; raises on failure
+
+so that deleting a feature directory drops its smoke coverage with it — the same
+PR-then-drop property the cores and unit tests have. A feature with no smoke/ directory
+simply has no end-to-end coverage, which is the correct state for one that is
+release-gated or non-additive and therefore cannot be served at all.
+
 Usage: smoke-test.py <server-dir> [--expect type-hierarchy,region-folding,...]
 
 <server-dir> is an unpacked server with the overlay already applied (see
-install-overlay.sh). --expect names the features that must be runnable on this release;
-each one that is not answered correctly fails the run. Defaults to every feature that
-build-server.sh compiles as runnable on the pinned release.
+install-overlay.sh). --expect narrows the run to named features and fails if one of them
+has no check; the default is every feature that ships one.
 """
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -22,13 +33,14 @@ import sys
 import threading
 import time
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FEATURES_DIR = os.path.join(ROOT, "overlay", "features")
+
 TIMEOUT = int(os.environ.get("SMOKE_TIMEOUT", "300"))
-# How long index-backed queries (inheritor search) may take to become answerable.
-INDEX_TIMEOUT = int(os.environ.get("SMOKE_INDEX_TIMEOUT", "120"))
 
 # A module definition for the server's JSON workspace importer (upstream's JsonWorkspaceImporter
-# picks up `workspace.json` in the project root). This is what puts the fixture into a real
-# module with a source root: without it the file is opened outside any module and index-backed
+# picks up `workspace.json` in the project root). This is what puts the fixtures into a real
+# module with a source root: without it the files are opened outside any module and index-backed
 # queries — the inheritor search behind typeHierarchy/subtypes — legitimately return nothing.
 # Gradle/Maven importers would work too but would drag a build-tool download into CI.
 WORKSPACE_JSON = {
@@ -42,42 +54,19 @@ WORKSPACE_JSON = {
     }],
 }
 
-FIXTURE = """\
-package sample
 
-interface Shape {
-    fun area(): Double
-}
-
-open class Base : Shape {
-    override fun area(): Double {
-        return 1.0
-    }
-}
-
-class Circle(val r: Double) : Base() {
-    //region geometry
-    override fun area(): Double {
-        return 3.14 * r * r
-    }
-    //endregion
-}
-"""
-
-# 0-based line numbers into FIXTURE, referenced by the checks below.
-LINE_SHAPE = 2       # interface Shape
-LINE_BASE = 6        # open class Base : Shape
-LINE_REGION = 13     # //region geometry
-LINE_ENDREGION = 17  # //endregion
-LINE_CIRCLE_AREA = 14  # override fun area() inside Circle
+class SmokeError(Exception):
+    pass
 
 
 class Server:
+    """Minimal LSP client. The object passed to each feature's check()."""
+
     def __init__(self, server_dir, root):
         self.proc = subprocess.Popen(
             [os.path.join(server_dir, "bin", "intellij-server"), "--stdio"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            cwd=root)
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, cwd=root)
         self.next_id = 0
         self.stderr_tail = []
         self.log_file = None  # the server announces its own log path over window/logMessage
@@ -85,8 +74,7 @@ class Server:
 
     def _drain_stderr(self):
         for line in self.proc.stderr:
-            text = line.decode("utf8", "replace").rstrip()
-            self.stderr_tail.append(text)
+            self.stderr_tail.append(line.decode("utf8", "replace").rstrip())
             del self.stderr_tail[:-200]
 
     def _write(self, msg):
@@ -101,6 +89,16 @@ class Server:
         self.next_id += 1
         self._write({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params})
         return self._await(self.next_id)
+
+    def poll(self, seconds, interval=2):
+        """Yield until `seconds` have elapsed, for index-backed queries that need retrying."""
+        deadline = time.time() + seconds
+        first = True
+        while time.time() < deadline:
+            if not first:
+                time.sleep(interval)
+            first = False
+            yield
 
     def _read(self):
         headers = {}
@@ -148,129 +146,66 @@ class Server:
             self.proc.kill()
 
 
-class SmokeError(Exception):
-    pass
-
-
-def check_type_hierarchy(lsp, uri):
-    """Overlay feature: textDocument/prepareTypeHierarchy + supertypes/subtypes."""
-    items = lsp.request("textDocument/prepareTypeHierarchy", {
-        "textDocument": {"uri": uri},
-        "position": {"line": LINE_BASE, "character": 11},  # on `Base`
-    })
-    if not items:
-        raise SmokeError("prepareTypeHierarchy on `Base` returned nothing")
-    base = items[0]
-    if base.get("name") != "Base":
-        raise SmokeError("prepareTypeHierarchy resolved %r, expected Base" % base.get("name"))
-
-    supertypes = lsp.request("typeHierarchy/supertypes", {"item": base}) or []
-    names = sorted(item["name"] for item in supertypes)
-    if "Shape" not in names:
-        raise SmokeError("supertypes of Base = %s, expected to contain Shape" % names)
-
-    # subtypes runs an inheritor search over the index, which is still being built for a
-    # freshly opened workspace — poll rather than race it.
-    names = []
-    deadline = time.time() + INDEX_TIMEOUT
-    while time.time() < deadline:
-        subtypes = lsp.request("typeHierarchy/subtypes", {"item": base}) or []
-        names = sorted(item["name"] for item in subtypes)
-        if "Circle" in names:
-            break
-        time.sleep(2)
-    if "Circle" not in names:
-        raise SmokeError("subtypes of Base = %s after %ds, expected to contain Circle"
-                         % (names, INDEX_TIMEOUT))
-    return "prepare→Base, supertypes⊇[Shape], subtypes⊇[Circle]"
-
-
-def check_region_folding(lsp, uri):
-    """Overlay feature: //region…//endregion ranges, merged with the built-in ones.
-
-    The kind matters. Stock 262.8190.0 already returns a range over the same two lines with
-    kind "comment" (it folds the comment block), so asserting only on the line numbers would
-    pass against an un-patched server. The overlay's contribution is the "region" kind.
-    """
-    ranges = lsp.request("textDocument/foldingRange", {"textDocument": {"uri": uri}}) or []
-    region = [r for r in ranges
-              if r.get("startLine") == LINE_REGION
-              and r.get("endLine") == LINE_ENDREGION
-              and r.get("kind") == "region"]
-    if not region:
-        raise SmokeError(
-            "no region-kind fold at lines %d-%d; got %s"
-            % (LINE_REGION, LINE_ENDREGION,
-               [(r.get("startLine"), r.get("endLine"), r.get("kind")) for r in ranges]))
-    # The built-in provider must still be answering — additivity is the whole premise.
-    others = [r for r in ranges if r not in region]
-    if not others:
-        raise SmokeError("only the region fold came back; the built-in folds went missing")
-    return "region fold %d-%d + %d built-in fold(s)" % (LINE_REGION, LINE_ENDREGION, len(others))
-
-
-def check_expression_body(lsp, uri):
-    """Overlay feature: the 'Convert to expression body' code action."""
-    actions = lsp.request("textDocument/codeAction", {
-        "textDocument": {"uri": uri},
-        "range": {"start": {"line": LINE_CIRCLE_AREA, "character": 17},
-                  "end": {"line": LINE_CIRCLE_AREA, "character": 17}},
-        "context": {"diagnostics": []},
-    }) or []
-    titles = [a.get("title", "") for a in actions]
-    match = [a for a in actions if "expression body" in a.get("title", "").lower()]
-    if not match:
-        raise SmokeError("no 'expression body' code action at the body of Circle.area(); "
-                         "got %s" % titles)
-    action = match[0]
-    edit = action.get("edit")
-    if edit is None and action.get("data") is not None:
-        action = lsp.request("codeAction/resolve", action)
-        edit = action.get("edit")
-    changes = (edit or {}).get("changes", {}) or (edit or {}).get("documentChanges", [])
-    if not changes:
-        raise SmokeError("'%s' resolved to an empty edit" % action.get("title"))
-    return "action %r with a non-empty edit" % action.get("title")
-
-
-CHECKS = {
-    "type-hierarchy": check_type_hierarchy,
-    "region-folding": check_region_folding,
-    "expression-body": check_expression_body,
-}
+def discover_features():
+    """Every overlay/features/<name>/smoke/check.py, as (name, module) pairs."""
+    found = []
+    for name in sorted(os.listdir(FEATURES_DIR)):
+        path = os.path.join(FEATURES_DIR, name, "smoke", "check.py")
+        if not os.path.isfile(path):
+            continue
+        spec = importlib.util.spec_from_file_location("smoke_%s" % name.replace("-", "_"), path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for attr in ("FIXTURE", "check"):
+            if not hasattr(module, attr):
+                raise SystemExit("%s defines no %s" % (path, attr))
+        found.append((name, module))
+    return found
 
 
 def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
     server_dir = os.path.abspath(sys.argv[1])
-    expect = list(CHECKS)
+
+    features = discover_features()
     for arg in sys.argv[2:]:
         if arg.startswith("--expect="):
-            expect = [f for f in arg.split("=", 1)[1].split(",") if f]
-    unknown = [f for f in expect if f not in CHECKS]
-    if unknown:
-        sys.exit("unknown feature(s) in --expect: %s (known: %s)"
-                 % (", ".join(unknown), ", ".join(CHECKS)))
+            wanted = [f for f in arg.split("=", 1)[1].split(",") if f]
+            missing = [f for f in wanted if f not in [n for n, _ in features]]
+            if missing:
+                sys.exit("no smoke check for: %s (found: %s)"
+                         % (", ".join(missing), ", ".join(n for n, _ in features) or "none"))
+            features = [(n, m) for n, m in features if n in wanted]
+    if not features:
+        sys.exit("no feature defines overlay/features/<name>/smoke/check.py")
 
     launcher = os.path.join(server_dir, "bin", "intellij-server")
     if not os.path.isfile(launcher):
         sys.exit("error: %s is not an unpacked kotlin-lsp server" % server_dir)
 
+    # One workspace holding every feature's fixture as its own file, so a single server start
+    # covers them all. Each check only ever sees the URI of its own fixture.
     root = os.path.join(os.environ.get("SMOKE_WORKDIR", "/tmp"), "kotlin-lsp-smoke")
-    os.makedirs(os.path.join(root, "src"), exist_ok=True)
-    source = os.path.join(root, "src", "Sample.kt")
-    with open(source, "w") as fh:
-        fh.write(FIXTURE)
+    src = os.path.join(root, "src")
+    os.makedirs(src, exist_ok=True)
     with open(os.path.join(root, "workspace.json"), "w") as fh:
         json.dump(WORKSPACE_JSON, fh, indent=2)
-    root_uri = "file://" + root
-    uri = "file://" + source
+    uris = {}
+    for name, module in features:
+        path = os.path.join(src, "%s.kt" % name.replace("-", "_"))
+        with open(path, "w") as fh:
+            fh.write(module.FIXTURE)
+        uris[name] = "file://" + path
 
-    print("[smoke] server:  %s" % server_dir)
-    print("[smoke] fixture: %s" % source)
+    print("[smoke] server:    %s" % server_dir)
+    print("[smoke] workspace: %s" % root)
+    print("[smoke] features:  %s" % ", ".join(name for name, _ in features))
+
+    root_uri = "file://" + root
     lsp = Server(server_dir, root)
     started = time.time()
+    failures = []
     try:
         lsp.request("initialize", {
             "processId": os.getpid(),
@@ -287,22 +222,22 @@ def main():
             },
         })
         lsp.notify("initialized", {})
-        lsp.notify("textDocument/didOpen", {"textDocument": {
-            "uri": uri, "languageId": "kotlin", "version": 1, "text": FIXTURE}})
+        for name, module in features:
+            lsp.notify("textDocument/didOpen", {"textDocument": {
+                "uri": uris[name], "languageId": "kotlin", "version": 1,
+                "text": module.FIXTURE}})
 
         # Deliberately no assertion on the advertised capabilities: stock 262.8190.0 already
         # advertises typeHierarchyProvider (and then answers nothing), so capabilities prove
         # nothing about the overlay. Only the request/response checks below do.
         print("[smoke] initialized in %.1fs" % (time.time() - started))
 
-        failures = []
-        for feature in expect:
+        for name, module in features:
             try:
-                detail = CHECKS[feature](lsp, uri)
-                print("[smoke]   PASS %-16s %s" % (feature, detail))
-            except SmokeError as err:
-                print("[smoke]   FAIL %-16s %s" % (feature, err))
-                failures.append(feature)
+                print("[smoke]   PASS %-16s %s" % (name, module.check(lsp, uris[name])))
+            except (AssertionError, SmokeError) as err:
+                print("[smoke]   FAIL %-16s %s" % (name, err))
+                failures.append(name)
     finally:
         lsp.shutdown()
 
@@ -315,7 +250,7 @@ def main():
                 for line in fh.readlines()[-60:]:
                     print("  " + line.rstrip())
         return 1
-    print("\n[smoke] PASS -- %d feature(s) served end-to-end" % len(expect))
+    print("\n[smoke] PASS -- %d feature(s) served end-to-end" % len(features))
     return 0
 
 
