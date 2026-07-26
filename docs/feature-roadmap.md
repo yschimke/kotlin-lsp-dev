@@ -26,7 +26,7 @@ For this overlay, however, only additive requests (plus the empty type-hierarchy
 |---|---|---|
 | Unused imports are not diagnosed | [#201](https://github.com/Kotlin/kotlin-lsp/issues/201) | **High:** diagnostics are additive; implementation started here. |
 | Type hierarchy returns `null` | [#197](https://github.com/Kotlin/kotlin-lsp/issues/197) | **Done:** this repository's type-hierarchy overlay occupies the empty slot. |
-| Generate overrides / implement members | [#171](https://github.com/Kotlin/kotlin-lsp/issues/171) | **High:** additive code action; PSI generation needs analysis-backed tests. |
+| Generate overrides / implement members | [#171](https://github.com/Kotlin/kotlin-lsp/issues/171) | **Done:** the declaration-generation code actions have landed on `main`. |
 | Generate named call arguments | [#175](https://github.com/Kotlin/kotlin-lsp/issues/175) | **High:** additive code action, independent of forbidden completion dispatch. |
 | Java-to-Kotlin conversion | [#157](https://github.com/Kotlin/kotlin-lsp/issues/157) | **Medium:** code action/command is reachable, but converter packaging must be verified. |
 | Go to implementation | [#107](https://github.com/Kotlin/kotlin-lsp/issues/107) | **Verify first:** handler is additive and a built-in now exists; focus on failing cases. |
