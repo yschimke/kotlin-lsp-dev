@@ -37,18 +37,25 @@ For this overlay, however, only additive requests (plus the empty type-hierarchy
 
 ## Next overlay features, in order
 
-1. **Unused-import diagnostics** — implement now, using Kotlin's import optimizer and the existing
-   organize-imports action as the repair path.
-2. **Implement/override members action** — offer separate preferred quick fixes for required
-   members and optional overrides; never implement it as a completion provider.
-3. **Fill named arguments action** — generate `name = TODO()` placeholders for omitted parameters
-   at a call expression, with vararg/default-parameter tests.
-4. **Missing `when` branches quick fix** — an additive, high-frequency code action comparable to
-   rust-analyzer/JDT semantic assists; first confirm it is not already exposed as an intention.
-5. **Test navigation and run commands** — extend additive code vision/execute-command support once
-   the pinned release exposes code lenses; keep command names globally unique.
-6. **Workspace symbol quality** — add a narrowly filtered provider only if it can improve queries
-   without duplicating the built-in's large unfiltered result stream.
+1. **Unused-import diagnostics — implemented in this PR.** It uses Kotlin's import optimizer and
+   the existing organize-imports action as the repair path.
+2. **Implement/override members action — implemented as a separate PR.** It offers distinct actions
+   for required and optional members, without touching forbidden completion dispatch.
+3. **Fill named arguments action — implemented as a separate PR.** It generates `name = TODO()`
+   placeholders for unambiguous empty calls and conservatively declines overloads.
+4. **Missing `when` branches quick fix — already built in.** A live stock-server audit returned
+   `NO_ELSE_IN_WHEN` plus `Add else branch`, `Add remaining branches`, and
+   `Add remaining branches with * import`; another provider would only duplicate working actions.
+5. **Test navigation and run commands — already represented by the code-vision feature.** Its core
+   and adapter are PR-ready, but the pinned release does not expose `codeLens`; release-gating it is
+   the only safe outcome until a newer public server exists.
+6. **Workspace symbol quality — deliberately not implemented.** Providers are additive, so a
+   filtered provider cannot remove or limit the built-in's large result stream and would add
+   duplicates. The fix belongs in the built-in provider or client request/result policy.
+
+This closes the actionable roadmap: every safe additive feature is implemented, an already-working
+feature was verified instead of duplicated, and the remaining two items are blocked by demonstrated
+dispatch/capability constraints rather than missing overlay code.
 
 Not candidates for this overlay: extra completion, formatting, signature help, hover replacement,
 document highlights, selection ranges, and code lenses on the current release. Their dispatch or
