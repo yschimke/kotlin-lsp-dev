@@ -52,6 +52,11 @@ gone. When a release ships the feature itself, delete the directory — that is 
 **`build-server.sh` release-gates automatically**: a feature whose LSP API isn't in the pinned
 release is skipped (it stays unit-tested + PR-ready and activates once a release ships the API).
 
+## Design notes
+
+- [LSP proxy / wrapper feasibility](docs/lsp-proxy.md) — how to add or replace operations that
+  cannot be injected as providers.
+
 ## Current features
 
 | Feature | On `262.8190.0` | Verified |
