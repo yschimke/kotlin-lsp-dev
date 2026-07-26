@@ -25,8 +25,6 @@ JAR="${JAVA_HOME:-/usr/lib/jvm/java-25-openjdk}/bin/jar"; [[ -x "$JAR" ]] || JAR
 
 KOTLIN_JAR="$SERVER/plugins/kotlin.lsp/lib/modules/language-server.api.features.impl.kotlin.jar"
 [[ -f "$KOTLIN_JAR" ]] || { echo "error: kotlin module jar not found in $SERVER" >&2; exit 1; }
-PRODUCT_INFO="$SERVER/product-info.json"
-[[ -f "$PRODUCT_INFO" ]] || { echo "error: product-info.json not found in $SERVER" >&2; exit 1; }
 
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 ( cd "$WORK" && "$JAR" xf "$OVERLAY_JAR" )
@@ -40,13 +38,12 @@ MERGED="$WORK/merged-services"
 mkdir -p "$WORK/$(dirname "$SERVICES")"; cp "$MERGED" "$WORK/$SERVICES"
 ( cd "$WORK" && "$JAR" uf "$KOTLIN_JAR" "$SERVICES" )
 
-# The native product launcher reads this jar list and main class from product-info.json. Keep the
-# official native/JVM bootstrap, but enter through our small Kotlin main before delegating to the
-# shipped server entry point.
+# Install the composition main and its launcher alongside the unmodified product launcher.
 LAUNCHER_JAR_NAME="language-server.overlay.jar"
 cp "$OVERLAY_JAR" "$SERVER/lib/$LAUNCHER_JAR_NAME"
-"$ROOT/scripts/configure-main.py" "$PRODUCT_INFO" "$LAUNCHER_JAR_NAME"
+cp "$ROOT/scripts/enhanced-server" "$SERVER/bin/enhanced-server"
+chmod +x "$SERVER/bin/enhanced-server"
 
 echo "Overlay applied to $SERVER"
-echo "Server main: overlay.server.KotlinLspServer -> com.intellij.ls.server.MainImpl"
+echo "Enhanced server: $SERVER/bin/enhanced-server --stdio"
 echo "Registered extensions:"; sed 's/^/  /' "$MERGED"

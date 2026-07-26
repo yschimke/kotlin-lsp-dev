@@ -10,12 +10,18 @@ Kotlin, unit-tested here, and injected into the shipped server through the platf
 `LanguageServerExtension` ServiceLoader — no forking, no patching of JetBrains jars, no bytecode
 manipulation.
 
-The enhanced distribution has its own Kotlin entry point,
-`overlay.server.KotlinLspServer`. The official native launcher and IntelliJ Platform bootstrap
-remain in charge; they call the overlay entry point, which delegates to the shipped
-`com.intellij.ls.server.MainImpl`. The overlay therefore has a stable startup seam without
-reimplementing or bypassing any of the server lifecycle, while feature registration continues to
-use the platform's `LanguageServerExtension` ServiceLoader.
+The enhanced distribution has its own Kotlin composition-server entry point,
+`overlay.server.KotlinLspServer`. The installed `bin/enhanced-server` launcher runs this small JVM
+wrapper, which starts `bin/intellij-server` as a child. In stdio mode it forwards LSP traffic and
+repairs capabilities which cannot be changed by a provider. The child remains the unmodified
+shipped entry point, so its lifecycle and existing `LanguageServerExtension` feature registration
+remain unchanged.
+
+This combines the executable proxy demonstrated in PR #13 with the JVM-wrapper direction proposed
+in PR #14: unlike a main method that immediately delegates, it creates a useful before/after-
+dispatch seam. The first fix advertises the pinned server's working range-formatting handler as
+`documentRangeFormattingProvider`, enabling Format Selection without adding a second formatting
+provider. Non-stdio modes currently delegate directly to the shipped main.
 
 > [!IMPORTANT]
 > **We publish only our own Apache-2.0 code** (`language-server.overlay-*.jar`), never JetBrains'
@@ -40,7 +46,7 @@ scripts/
   fetch-dist.sh      download + unpack the pinned release
   fetch-kotlinc.sh   download the pinned standalone Kotlin compiler
   build-server.sh    compile features vs the release → overlay jar (+ local enhanced tarball)
-  install-overlay.sh apply the overlay jar and select its delegating main method
+  install-overlay.sh apply the overlay jar and install its composition-server launcher
   compile-check.sh   type-check the pinned upstream sources vs the release (drift detection)
   smoke-test.py      drive a patched server over stdio and assert the features answer
 ```
@@ -91,8 +97,8 @@ cd kotlin-lsp-dev
 ./scripts/smoke-test.py /path/to/kotlin-server-<v>   # end-to-end: does the patched server answer?
 ```
 
-Point your editor at the patched server (`bin/intellij-server --stdio`, or VS Code's
-`intellij.dev.serverPort` to attach to a running one).
+Point your editor at the enhanced composition server (`bin/enhanced-server --stdio`). The stock
+`bin/intellij-server` remains available and unchanged, but does not include capability repairs.
 
 ## Testing
 

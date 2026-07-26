@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Starts the kotlin-lsp-dev Kotlin composition server installed beside this script.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
+command -v "$JAVA" >/dev/null 2>&1 || { echo "enhanced-server: Java not found" >&2; exit 1; }
+
+CP="$ROOT/lib/language-server.overlay.jar:$ROOT/lib/intellij.libraries.gson.jar:$ROOT/lib/util-8.jar"
+exec "$JAVA" -cp "$CP" -Dkotlin.lsp.server.home="$ROOT" overlay.server.KotlinLspServer "$@"

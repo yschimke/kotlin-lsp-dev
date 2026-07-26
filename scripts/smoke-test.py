@@ -64,7 +64,7 @@ class Server:
 
     def __init__(self, server_dir, root):
         self.proc = subprocess.Popen(
-            [os.path.join(server_dir, "bin", "intellij-server"), "--stdio"],
+            [os.path.join(server_dir, "bin", "enhanced-server"), "--stdio"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, cwd=root)
         self.next_id = 0
@@ -180,7 +180,7 @@ def main():
     if not features:
         sys.exit("no feature defines overlay/features/<name>/smoke/check.py")
 
-    launcher = os.path.join(server_dir, "bin", "intellij-server")
+    launcher = os.path.join(server_dir, "bin", "enhanced-server")
     if not os.path.isfile(launcher):
         sys.exit("error: %s is not an unpacked kotlin-lsp server" % server_dir)
 
@@ -207,7 +207,7 @@ def main():
     started = time.time()
     failures = []
     try:
-        lsp.request("initialize", {
+        initialize = lsp.request("initialize", {
             "processId": os.getpid(),
             "rootUri": root_uri,
             "workspaceFolders": [{"uri": root_uri, "name": "smoke"}],
@@ -227,9 +227,15 @@ def main():
                 "uri": uris[name], "languageId": "kotlin", "version": 1,
                 "text": module.FIXTURE}})
 
-        # Deliberately no assertion on the advertised capabilities: stock 262.8190.0 already
-        # advertises typeHierarchyProvider (and then answers nothing), so capabilities prove
-        # nothing about the overlay. Only the request/response checks below do.
+        # This capability is owned by the composition main rather than a feature provider. Stock
+        # 262.8190.0 has a working range-formatting handler but does not advertise it.
+        capabilities = initialize.get("capabilities", {})
+        if capabilities.get("documentRangeFormattingProvider") is not True:
+            raise SmokeError("composition main did not advertise range formatting")
+
+        # Provider capability flags alone still prove nothing about those providers: stock
+        # 262.8190.0 advertises typeHierarchyProvider and then answers nothing. Exercise their
+        # requests below.
         print("[smoke] initialized in %.1fs" % (time.time() - started))
 
         for name, module in features:
