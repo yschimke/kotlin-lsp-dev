@@ -132,9 +132,15 @@ class Server:
                 text = (msg.get("params") or {}).get("message", "")
                 if text.startswith("Log file: "):
                     self.log_file = text[len("Log file: "):].strip()
-            # Server-to-client request: reply null so the server never blocks on us.
+            # Server-to-client request: provide the response shape required by configuration;
+            # reply null to other methods so the server never blocks on us.
             if "id" in msg and "method" in msg:
-                self._write({"jsonrpc": "2.0", "id": msg["id"], "result": None})
+                if msg["method"] == "workspace/configuration":
+                    items = (msg.get("params") or {}).get("items", [])
+                    result = [{} for _ in items]
+                else:
+                    result = None
+                self._write({"jsonrpc": "2.0", "id": msg["id"], "result": result})
         raise SmokeError("timed out after %ds waiting for response %s" % (TIMEOUT, want))
 
     def shutdown(self):
@@ -213,6 +219,7 @@ def main():
             "workspaceFolders": [{"uri": root_uri, "name": "smoke"}],
             "capabilities": {
                 "textDocument": {
+                    "inlayHint": {"dynamicRegistration": True, "resolveSupport": {"properties": []}},
                     "typeHierarchy": {"dynamicRegistration": True},
                     "foldingRange": {"dynamicRegistration": True},
                     "codeAction": {"resolveSupport": {"properties": ["edit"]}},

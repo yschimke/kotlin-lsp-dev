@@ -1,1 +1,0 @@
-not runnable as an overlay: inlay-hint dispatch is not additive (the server does not merge added inlay providers). Runs its computation (unit-tested) but the server drops added hints. Land it upstream by merging into the built-in Kotlin inlay provider.

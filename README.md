@@ -60,14 +60,13 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Region folding** (`//region`…`//endregion`) — enhancement | ✅ runnable | unit tests + CI smoke test (folds merge with built-in) |
 | **Convert to expression body** — enhancement (code action) | ✅ runnable | unit tests + CI smoke test (action + edit, merged with built-ins) |
 | **Code vision** code lenses (usages / implementations / run-test) — new | ⊘ release-gated — `codeLens` API postdates the release | unit tests + PR-ready adapter |
-| **Closing-brace inlay hints** — enhancement | ⊘ inlay dispatch isn't additive (needs upstream merge) | unit tests + PR-ready adapter |
+| **Closing-brace inlay hints** — enhancement | ✅ runnable | unit tests + CI smoke test (function + class hints, merged with built-ins) |
 
-**Why some features aren't runnable here** — two hard platform limits, mapped and documented
-per feature: (1) a feature's LSP API may **postdate** the newest public release (there is no
-newer server to pin), and (2) some request types dispatch to a **single** provider rather than
-merging, so they can't be enhanced by *adding* a provider (folding, code lens, and code actions
-merge; inlay hints do not). Both kinds are carried unit-tested + PR-ready and activate once the
-constraint lifts.
+**Why some features aren't runnable here** — an overlay feature's LSP API may **postdate** the
+newest public release (there is no newer server to pin). Those features are carried unit-tested +
+PR-ready and activate once the constraint lifts. Some request types also dispatch to a **single**
+provider rather than merging, so they cannot be enhanced by adding a provider; the dispatch table
+in `AGENTS.md` records the verified behavior. Inlay hints are additive on the pinned release.
 
 ## Build & apply
 
