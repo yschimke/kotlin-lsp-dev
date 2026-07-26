@@ -1,11 +1,11 @@
 # Closing-brace inlay hints
 
-**Status:** PR-ready + unit-tested, but **temporarily not runnable as an overlay**. Live testing
-showed that the provider runs and computes the expected hints, but the client receives none.
-Disassembly has since confirmed that inlay-hint dispatch is additive, so the old explanation was
-wrong; registration, language mapping, and result `data` metadata are being investigated.
-`build-server.sh` skips it (`PR_ONLY` marker) until the live path is fixed and verified.
-_Tracking: (add the upstream PR/issue URL here once opened)_
+**Status:** Runnable on pinned release `262.8190.0`, unit-tested, and verified over stdio against
+a patched server. Inlay-hint dispatch is additive: the server collects every matching provider's
+flow. The earlier apparent failure came from the test client answering the built-in provider's
+`workspace/configuration` request with `null`; it requires one configuration object per requested
+item and failed the whole request before the combined result could be returned.
+_Tracking: https://github.com/yschimke/kotlin-lsp-dev/issues/5_
 
 ## What this adds
 
@@ -17,7 +17,23 @@ built-in type/parameter hints do not provide.
 | Path | Role | Verified by |
 |---|---|---|
 | `core/…/inlayHints/ClosingBraceHintsComputation.kt` | finds long bodies, labels their closing brace | `test/ClosingBraceHintsTest.kt` |
-| `ext/…/LSKotlinClosingBraceInlayHintsProvider.kt` | `LSInlayHintsProvider` adapter (compiles; ineffective as an overlay) | compile-check |
+| `ext/…/LSKotlinClosingBraceInlayHintsProvider.kt` | additive `LSInlayHintsProvider` adapter | live stdio smoke test |
+| `smoke/check.py` | requests hints for a long function and class | `scripts/smoke-test.py` |
+
+## Live verification
+
+`scripts/smoke-test.py` applies a real `textDocument/inlayHint` request to the pinned server and
+requires both overlay labels. The same request also runs the built-in Kotlin provider, proving
+that the two providers coexist and dispatch additively. Hints do not need provider-routing data:
+this provider has nothing to resolve and `inlayHint/resolve` returns the original hint when its
+`data` has no configuration-entry id.
+
+## Scope versus built-in hints
+
+The bundled Kotlin provider already covers type, parameter, lambda, value-range, Kotlin-time, and
+call-chain hint families exposed through the twelve `jetbrains.kotlin.hints.*` settings. Closing
+brace ownership labels are a genuine gap. Further overlay hint work should target similarly
+distinct structural hints rather than duplicate those configurable families.
 
 ## Upstream target path
 

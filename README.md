@@ -64,17 +64,18 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Region folding** (`//region`…`//endregion`) — enhancement | ✅ runnable | unit tests + CI smoke test (folds merge with built-in) |
 | **Convert to expression body** — enhancement (code action) | ✅ runnable | unit tests + CI smoke test (action + edit, merged with built-ins) |
 | **Extract variable** — new (code action) | ✅ runnable | unit tests + CI smoke test (direct declaration + replacement edit) |
+| **Unused-import diagnostics** — enhancement ([#201](https://github.com/Kotlin/kotlin-lsp/issues/201)) | ✅ runnable | unit tests + CI smoke test (warning + `Unnecessary` tag) |
 | **Workspace commands** — doctor, stack traces, dependency search, FQN | ✅ runnable | unit tests + CI smoke test (all four commands) |
 | **Implement/override members** — declaration-generation code actions | ✅ runnable | unit tests + CI smoke test (direct implementation edit) |
 | **Code vision** code lenses (usages / implementations / run-test) — new | ⊘ release-gated — `codeLens` API postdates the release | unit tests + PR-ready adapter |
-| **Closing-brace inlay hints** — enhancement | ⊘ investigation in progress (dispatch is additive, but results are dropped) | unit tests + PR-ready adapter |
+| **Closing-brace inlay hints** — enhancement | ✅ runnable | unit tests + CI smoke test (function + class hints, merged with built-ins) |
 
 **Why some features aren't runnable here** — a feature's LSP API may **postdate** the newest
 public release (there is no newer server to pin), or the shipped request path may not safely
-compose another provider. Closing-brace hints are temporarily gated while their live failure is
-investigated: disassembly confirms that inlay-hint dispatch collects every matching provider, so
-the earlier claim that dispatch was non-additive was incorrect. Registration, language mapping,
-and result metadata remain under investigation. Gated features remain unit-tested and PR-ready.
+compose another provider. Those features are carried unit-tested + PR-ready and activate once the
+constraint lifts. Some request types also dispatch to a **single** provider rather than merging,
+so they cannot be enhanced by adding a provider; the dispatch table in `AGENTS.md` records the
+verified behavior. Inlay hints are additive on the pinned release.
 
 ## Overlay platform guardrails
 
