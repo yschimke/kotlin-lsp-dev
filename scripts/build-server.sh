@@ -34,6 +34,9 @@ case "${1:-}" in
   *) echo "usage: build-server.sh [--vsix | --jar-only]" >&2; exit 2 ;;
 esac
 
+# Fail fast, before downloading large toolchains, if an overlay would break a singleton request.
+"$ROOT/scripts/check-overlay-guardrails.sh"
+
 "$ROOT/scripts/fetch-dist.sh"
 "$ROOT/scripts/fetch-kotlinc.sh"
 

@@ -1,10 +1,10 @@
 # Closing-brace inlay hints
 
-**Status:** PR-ready + unit-tested, but **not runnable as an overlay**. Inlay-hint dispatch is
-**not additive** — the server does not merge a second `LSInlayHintsProvider`, so an added
-provider's hints are dropped (verified: the provider runs and computes the right hints, but the
-client receives none). It must land upstream by folding this into the built-in Kotlin inlay
-provider. `build-server.sh` skips it (`PR_ONLY` marker).
+**Status:** PR-ready + unit-tested, but **temporarily not runnable as an overlay**. Live testing
+showed that the provider runs and computes the expected hints, but the client receives none.
+Disassembly has since confirmed that inlay-hint dispatch is additive, so the old explanation was
+wrong; registration, language mapping, and result `data` metadata are being investigated.
+`build-server.sh` skips it (`PR_ONLY` marker) until the live path is fixed and verified.
 _Tracking: (add the upstream PR/issue URL here once opened)_
 
 ## What this adds
