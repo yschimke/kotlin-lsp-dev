@@ -21,6 +21,52 @@ This does **not** make a missing JetBrains provider API available. It moves the 
 outside the closed server. A feature still needs an independent computation engine or must be
 expressible in terms of requests that the child already supports.
 
+## Relationship to PRs #13 and #19
+
+The two open implementation PRs explore different seams. Neither invalidates this design, but only
+one is an initial implementation of it:
+
+| Approach | What it changes | Can escape issue #9 dispatch limits? | Role in this design |
+|---|---|---|---|
+| [PR #13](https://github.com/yschimke/kotlin-lsp-dev/pull/13) | Runs a Python process between the client and child server and rewrites the `initialize` response to advertise range formatting. | **Yes, structurally.** It already owns the protocol boundary, although today it only patches one capability and forwards every request. | Treat as the transport/capability-rewrite spike from delivery steps 1–2, then extend its router rather than create a second proxy. |
+| [PR #19](https://github.com/yschimke/kotlin-lsp-dev/pull/19) | Changes `product-info.json` so the native launcher calls an overlay-owned JVM `main`, which immediately invokes the shipped `MainImpl` in the same process. | **No, not by itself.** Requests still enter the same 29 handlers and the same provider combiners after delegation. | Useful startup/bootstrap seam for in-process work; it is not an LSP composition boundary. |
+| This proposal | Gives a wrapper explicit per-method ownership and, eventually, its own feature engine. | **Yes.** It can consume, replace, or augment messages outside the child's dispatcher. | Generalizes PR #13 from a capability shim into a composition server. |
+
+### What PR #13 proves—and what remains
+
+PR #13 is a thin proxy, not a competing architecture. It demonstrates that the installed launcher
+can start the official server as a child, relay LSP over stdio or TCP, correlate the initialize
+request with its response, and repair an omitted capability. That is enough for range formatting
+because the child already has a working handler; no new operation is computed.
+
+It does **not yet** implement the central issue #9 escape hatch: there is no method router, local
+request handler, response merger, document mirror, cancellation ownership, or independent Kotlin
+analysis. Advertising `selectionRangeProvider` or `codeLensProvider` in that implementation would
+therefore be incorrect—the client would send a request that the child still cannot handle. The
+next proof should add one small locally answered request and fake-child integration tests for
+interleaved bidirectional traffic before the proxy becomes the default launcher.
+
+### Why PR #19 is complementary, not a proxy
+
+PR #19 creates a stable overlay-owned entry point *inside the launched server JVM*. Its current
+`KotlinLspServer.main` reflectively calls `com.intellij.ls.server.MainImpl.main` immediately. This
+is valuable if startup behavior or in-process registration needs an owned hook, and it preserves
+the official native and IntelliJ Platform bootstrap.
+
+However, changing the entry point does not create a second JSON-RPC endpoint and does not get
+between `MainImpl` and its request dispatcher. Consequently it cannot make an unregistered method
+reachable, make completion/formatting accept another provider, or impose priority on first-non-null
+providers. Doing those things through PR #19 would require replacing or wrapping internal server
+construction—which is closed, version-sensitive code—and would lose the clean process/protocol
+boundary that makes PR #13 viable.
+
+The approaches can coexist, but they should not both be required for proxy-only features. PR #13's
+wrapper may launch either the stock child or a PR #19-enhanced child. In that combination, the JVM
+entry point continues to support ordinary additive overlays, while the outer proxy owns operations
+that cannot compose inside the child. Keep the ownership rule explicit: use the overlay for safe
+additive providers, the proxy for missing or non-composable operations, and do not implement the
+same method in both layers.
+
 ## Why this bypasses each limit
 
 | In-process limitation | Proxy behaviour |
