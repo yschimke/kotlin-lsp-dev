@@ -130,12 +130,10 @@ around them landing upstream. When choosing what to build, weight **"runnable on
 release now"** far above "clean upstream shape". The "PR-then-drop" lifecycle in README.md is
 aspirational, not a schedule.
 
-## Known open questions
+## Resolved investigations
 
-- **Inlay-hint additivity is disputed.** `overlay/features/closing-brace-hints/README.md` states
-  dispatch is non-additive and gates the feature `PR_ONLY` on that basis. Disassembly of
-  `262.8190.0` shows `LSInlayHints.inlayHints` calling
-  `respondDirectlyWithResultsCollectedConcurrently` over every matching provider — i.e. additive,
-  same helper as folding. The observed "hints computed but client receives none" is real, so
-  something else is the cause (`uniqueId` collision, language-map miss, or missing `data` entry-id).
-  Resolve before treating inlay hints as blocked.
+- **Inlay hints are additive.** Disassembly and a live stdio smoke test on `262.8190.0` confirm
+  that `LSInlayHints.inlayHints` collects every matching provider. The earlier closing-brace test
+  failed because its client returned `null` to the built-in provider's `workspace/configuration`
+  request, causing that provider to throw before dispatch could return the combined results.
+  Return one configuration object per requested item when testing inlay hints.

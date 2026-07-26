@@ -1,1 +1,0 @@
-temporarily gated: dispatch is additive, but live testing drops the computed hints; investigate registration, language mapping, and result data before enabling.
