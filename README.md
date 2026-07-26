@@ -38,10 +38,14 @@ scripts/
   smoke-test.py      drive a patched server over stdio and assert the features answer
 ```
 
-## Feature lifecycle (PR-then-drop)
+## Feature lifecycle (permanent overlay, PR-ready shape)
 
-Each feature is meant to become an upstream PR (its README carries a ready-to-submit body).
-Until it lands, the overlay carries it.
+Treat the overlay as the permanent home of every feature. Kotlin/kotlin-lsp is a read-only mirror
+of an internal JetBrains monorepo, its README says that code contributions are not accepted, and
+no external pull request has ever merged. Features still use upstream-ready paths, headers, and
+PR bodies because that discipline keeps them isolated and reviewable—not because a merge is part
+of their expected lifecycle. Prefer features that run on the pinned release now over features
+whose only advantage is a clean hypothetical upstream integration.
 
 **Everything a feature owns lives in its own directory** — sources, unit tests, and smoke check.
 That makes a feature one self-contained unit to submit upstream, and it means deleting the
@@ -60,14 +64,37 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Region folding** (`//region`…`//endregion`) — enhancement | ✅ runnable | unit tests + CI smoke test (folds merge with built-in) |
 | **Convert to expression body** — enhancement (code action) | ✅ runnable | unit tests + CI smoke test (action + edit, merged with built-ins) |
 | **Code vision** code lenses (usages / implementations / run-test) — new | ⊘ release-gated — `codeLens` API postdates the release | unit tests + PR-ready adapter |
-| **Closing-brace inlay hints** — enhancement | ⊘ inlay dispatch isn't additive (needs upstream merge) | unit tests + PR-ready adapter |
+| **Closing-brace inlay hints** — enhancement | ⊘ investigation in progress (dispatch is additive, but results are dropped) | unit tests + PR-ready adapter |
 
-**Why some features aren't runnable here** — two hard platform limits, mapped and documented
-per feature: (1) a feature's LSP API may **postdate** the newest public release (there is no
-newer server to pin), and (2) some request types dispatch to a **single** provider rather than
-merging, so they can't be enhanced by *adding* a provider (folding, code lens, and code actions
-merge; inlay hints do not). Both kinds are carried unit-tested + PR-ready and activate once the
-constraint lifts.
+**Why some features aren't runnable here** — a feature's LSP API may **postdate** the newest
+public release (there is no newer server to pin), or the shipped request path may not safely
+compose another provider. Closing-brace hints are temporarily gated while their live failure is
+investigated: disassembly confirms that inlay-hint dispatch collects every matching provider, so
+the earlier claim that dispatch was non-additive was incorrect. Registration, language mapping,
+and result metadata remain under investigation. Gated features remain unit-tested and PR-ready.
+
+## Overlay platform guardrails
+
+The dispatch behavior is release-specific. The table in `AGENTS.md` was derived for the version
+in `dist.properties` by disassembling `lib/product.jar` from that distribution, then comparing the
+handlers with `upstream/api.features/src`. When the pinned version changes, re-run that audit:
+
+1. Inspect the new server's initialize capability construction and registered request handlers.
+2. Disassemble each handler/combiner in `product.jar` (for example with `javap -c -p`) and record
+   whether it visits all matching providers, chooses one, or rejects multiple providers.
+3. Compare the bytecode with the pinned `upstream/api.features/src` sources and update the table
+   in `AGENTS.md`; do not assume behavior from another release.
+4. Build, install, and exercise every runnable feature over stdio. Compilation alone does not
+   prove registration, capability advertisement, or result routing.
+
+Some combinations fail loudly rather than degrading. Never add completion, signature-help, or
+formatting/range-formatting providers: built-ins already occupy those paths, and another provider
+causes request-time errors. `scripts/check-overlay-guardrails.sh` enforces this before the build
+downloads toolchains. Server configuration also validates globally unique command names and a
+unique `uniqueId` for every `LSUniqueConfigurationEntry`. An extension must not contribute an
+`LSLanguage` whose `lspName` is `kotlin`; use a Kotlin language instance only in an entry's
+`supportedLanguages`, because adding it to `LSConfigurationPiece.languages` duplicates the
+built-in language and aborts startup.
 
 ## Build & apply
 
