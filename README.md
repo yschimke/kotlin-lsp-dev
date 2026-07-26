@@ -10,6 +10,13 @@ Kotlin, unit-tested here, and injected into the shipped server through the platf
 `LanguageServerExtension` ServiceLoader — no forking, no patching of JetBrains jars, no bytecode
 manipulation.
 
+The enhanced distribution has its own Kotlin entry point,
+`overlay.server.KotlinLspServer`. The official native launcher and IntelliJ Platform bootstrap
+remain in charge; they call the overlay entry point, which delegates to the shipped
+`com.intellij.ls.server.MainImpl`. The overlay therefore has a stable startup seam without
+reimplementing or bypassing any of the server lifecycle, while feature registration continues to
+use the platform's `LanguageServerExtension` ServiceLoader.
+
 > [!IMPORTANT]
 > **We publish only our own Apache-2.0 code** (`language-server.overlay-*.jar`), never JetBrains'
 > proprietary server binaries. You download the official server yourself and apply the overlay
@@ -33,7 +40,7 @@ scripts/
   fetch-dist.sh      download + unpack the pinned release
   fetch-kotlinc.sh   download the pinned standalone Kotlin compiler
   build-server.sh    compile features vs the release → overlay jar (+ local enhanced tarball)
-  install-overlay.sh apply the overlay jar to a server you downloaded
+  install-overlay.sh apply the overlay jar and select its delegating main method
   compile-check.sh   type-check the pinned upstream sources vs the release (drift detection)
   smoke-test.py      drive a patched server over stdio and assert the features answer
 ```

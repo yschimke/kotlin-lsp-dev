@@ -46,6 +46,15 @@ SER_PLUGIN="$(dirname "$KOTLINC")/../lib/kotlinx-serialization-compiler-plugin.j
 CLASSES="$OUT/classes"
 rm -rf "$CLASSES" "$OUT/services-all.txt"; mkdir -p "$CLASSES"; : > "$OUT/services-all.txt"
 
+# Compile our distribution entry point separately from the release-gated features. The native
+# launcher will call this class, which delegates to the official MainImpl after providing a stable
+# seam for overlay-owned startup behavior.
+mapfile -t launcher_srcs < <(find "$ROOT/launcher" -name '*.kt')
+[[ ${#launcher_srcs[@]} -gt 0 ]] || { echo "error: no overlay launcher sources found" >&2; exit 1; }
+"$KOTLINC" -cp "$CP" -jvm-target 25 -language-version 2.4 -api-version 2.4 \
+    -nowarn -d "$CLASSES" "${launcher_srcs[@]}"
+echo "[build-server]   ✓ overlay server main"
+
 compile_feature() {
   local feat="$1" name; name="$(basename "$feat")"
   if [[ -f "$feat/PR_ONLY" ]]; then
@@ -95,6 +104,12 @@ rm -rf "$STAGE"
 cp -r "$DIST_SRC" "$STAGE"
 MODULES_DIR="$STAGE/plugins/kotlin.lsp/lib/modules"
 KOTLIN_JAR="$MODULES_DIR/language-server.api.features.impl.kotlin.jar"
+
+# Put the overlay on the launcher's boot class path and select our delegating main. The feature
+# classes are still injected into the Kotlin module below so ServiceLoader sees them in its normal
+# module/class-loader context.
+cp "$OVERLAY_JAR" "$STAGE/lib/$EXT_JAR_NAME"
+"$ROOT/scripts/configure-main.py" "$STAGE/product-info.json" "$EXT_JAR_NAME"
 
 # --- 3. inject overlay classes + the services entries INTO the kotlin.lsp module jar --------
 # The classes must live in a jar the server's ServiceLoader actually scans; the shipped kotlin
