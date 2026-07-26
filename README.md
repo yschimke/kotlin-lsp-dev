@@ -63,6 +63,7 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Type hierarchy** (`textDocument/typeHierarchy`) — new | ✅ runnable | unit tests + CI smoke test (prepare + supertypes/subtypes) |
 | **Region folding** (`//region`…`//endregion`) — enhancement | ✅ runnable | unit tests + CI smoke test (folds merge with built-in) |
 | **Convert to expression body** — enhancement (code action) | ✅ runnable | unit tests + CI smoke test (action + edit, merged with built-ins) |
+| **Unused-import diagnostics** — enhancement ([#201](https://github.com/Kotlin/kotlin-lsp/issues/201)) | ✅ runnable | unit tests + CI smoke test (warning + `Unnecessary` tag) |
 | **Workspace commands** — doctor, stack traces, dependency search, FQN | ✅ runnable | unit tests + CI smoke test (all four commands) |
 | **Implement/override members** — declaration-generation code actions | ✅ runnable | unit tests + CI smoke test (direct implementation edit) |
 | **Code vision** code lenses (usages / implementations / run-test) — new | ⊘ release-gated — `codeLens` API postdates the release | unit tests + PR-ready adapter |
