@@ -3,8 +3,7 @@ name: test-fork
 # Test any fork, branch, or PR of kotlin-lsp.
 #
 # Run it from the Actions tab (or `gh workflow run test-fork.yml -f ...`) pointing at the
-# checkout that contains the change — e.g. your own fork with the move-file branch pushed.
-# When that ref carries the move feature, the move test runs on top of the spike test.
+# checkout that contains the change — e.g. your own fork with a feature branch pushed.
 #
 # compile-check runs in soft mode here: an arbitrary ref may drift from the baseline captured
 # for this repo, so baseline misses are reported as warnings rather than failing the run.
