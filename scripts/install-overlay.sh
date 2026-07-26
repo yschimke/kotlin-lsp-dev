@@ -38,5 +38,11 @@ MERGED="$WORK/merged-services"
 mkdir -p "$WORK/$(dirname "$SERVICES")"; cp "$MERGED" "$WORK/$SERVICES"
 ( cd "$WORK" && "$JAR" uf "$KOTLIN_JAR" "$SERVICES" )
 
+# Install the capability-aware entry point beside the stock launcher. Unlike a provider overlay,
+# this can repair initialize capabilities that the closed server hardcodes incorrectly.
+cp "$ROOT/scripts/enhanced-server.py" "$SERVER/bin/enhanced-server"
+chmod +x "$SERVER/bin/enhanced-server"
+
 echo "Overlay applied to $SERVER"
+echo "Enhanced launcher: $SERVER/bin/enhanced-server --stdio"
 echo "Registered extensions:"; sed 's/^/  /' "$MERGED"

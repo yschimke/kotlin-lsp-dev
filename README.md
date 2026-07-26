@@ -36,6 +36,7 @@ scripts/
   install-overlay.sh apply the overlay jar to a server you downloaded
   compile-check.sh   type-check the pinned upstream sources vs the release (drift detection)
   smoke-test.py      drive a patched server over stdio and assert the features answer
+  enhanced-server.py  run the server with harness-provided capability fixes
 ```
 
 ## Feature lifecycle (PR-then-drop)
@@ -86,6 +87,29 @@ cd kotlin-lsp-dev
 
 Point your editor at the patched server (`bin/intellij-server --stdio`, or VS Code's
 `intellij.dev.serverPort` to attach to a running one).
+
+### Run the enhanced server
+
+The overlay jar adds providers, but that alone cannot repair capabilities hardcoded by the server.
+Pinned server `262.8190.0`, for example, has a working `textDocument/rangeFormatting` handler but
+does not advertise `documentRangeFormattingProvider`. Run the server through the harness so clients
+can use both overlay features and these capability fixes:
+
+```sh
+/path/to/patched/kotlin-server-262.8190.0/bin/enhanced-server --stdio
+```
+
+`install-overlay.sh` installs this launcher alongside the stock one. Configure an editor to use it
+instead of `bin/intellij-server --stdio`. For VS Code's TCP connection mode, run it with
+`--port 9999` and set `intellij.dev.serverPort` to `9999`.
+The runner starts the real server over stdio, changes only the initialize capability, and forwards
+all other LSP frames unchanged. No JetBrains jar or bytecode is modified.
+
+Live verification against stock `262.8190.0` confirms the mismatch: initialize omits the
+capability, but a direct range-formatting request returns sensible, range-local edits (indentation
+and spacing fixes for the selected statements). The handler is functional; advertising it upstream
+therefore makes **Format Selection work now**, rather than merely demonstrating the upstream bug.
+As with the other server scripts, launch it with JDK 25 available.
 
 ## Testing
 
