@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
@@ -57,6 +58,9 @@ object KotlinLspServer {
     private const val DOCUMENT_HIGHLIGHT = "textDocument/documentHighlight"
     private const val REFERENCES = "textDocument/references"
     private const val LOOPBACK = "127.0.0.1"
+
+    /** How long a child gets to exit before it is killed, so its index lock is released. */
+    private const val CHILD_EXIT_GRACE_SECONDS = 10L
 
     @JvmStatic
     fun main(args: Array<String>) {
@@ -191,14 +195,25 @@ object KotlinLspServer {
                 try {
                     session.pumpClient(input)
                 } finally {
-                    // Closing the child's stdin is how the shipped server learns to exit.
+                    // Closing the child's stdin is how the shipped server learns to exit cleanly
+                    // when the client shut down properly.
                     runCatching { child.outputStream.close() }
+                    // But an editor that simply drops the connection -- a reload, a crash -- never
+                    // sends shutdown/exit, and the child then sits there indefinitely holding the
+                    // workspace index lock. Waiting for it to notice would block this session from
+                    // ending and the next client from ever being served, so end it ourselves.
+                    child.destroy()
                 }
             }
             child.inputStream.use { session.pumpChild(it) }
-            check(child.waitFor() == 0) { "kotlin-lsp child exited unsuccessfully" }
         } finally {
             child.destroy()
+            // Do not accept another client until the child is really gone: its index lock is held
+            // until process exit, and the next child would fail to open the workspace.
+            if (!child.waitFor(CHILD_EXIT_GRACE_SECONDS, TimeUnit.SECONDS)) {
+                Log.line("child", "kill", "did not exit in ${CHILD_EXIT_GRACE_SECONDS}s; forcing")
+                child.destroyForcibly().waitFor()
+            }
         }
     }
 
