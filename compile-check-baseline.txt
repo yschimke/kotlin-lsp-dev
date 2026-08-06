@@ -1,25 +1,20 @@
-# Files that fail to type-check against the pinned release purely because upstream master
-# runs ahead of it -- closed APIs that moved after 262.8190.0 (fileChanges, findPsiDirectory,
-# LatestCompletionSessionComponent, ...) and platform classes added after it
-# (MoveDirectoryWithClassesProcessorUtil).
+# Files that fail to type-check against the pinned release purely because the upstream
+# checkout runs ahead of it.
 #
-# Regenerate after a release bump; shrinking this list is the point.
-# Captured against kotlin-lsp @ 2026-07-21, dist 262.8190.0.
-
-api.features/src/com/jetbrains/ls/api/features/codeActions/LSCodeActions.kt
-api.features/src/com/jetbrains/ls/api/features/diagnostics/LSDiagnostic.kt
-api.features/src/com/jetbrains/ls/api/features/LSConfigurationData.kt
-api.features/src/com/jetbrains/ls/api/features/LSConfigurationEntry.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/callHierarchy/LSCallHierarchyProviderBase.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/codeLens/LSJvmRunMainCodeLensProvider.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/completion/LSCompletionProviderHelper.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/configuration/LSCommonConfiguration.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/diagnostics/LSInspectionManager.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/inlayHints/LSInlayHintsProviderBase.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/modcommands/LSChooseActionCommandDescriptorProvider.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/modcommands/ModCommandData.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/move/LSMoveFileProviderBase.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/processors/MoveDirectoryProcessor.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/processors/refactoringUtils.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/progress/LSHeadlessTaskSupport.kt
-features-impl/common/src/com/jetbrains/ls/api/features/impl/common/utils/targets.kt
+# This list is currently EMPTY, and keeping it that way is the point.
+#
+# It used to hold 18 files. Two things emptied it:
+#
+#   1. The submodule is pinned at the release tag itself (kotlin-lsp/v<version>), not at a
+#      later master commit. Sources and jars are then the same build, so there is no skew to
+#      baseline. Always re-pin to the tag when bumping dist.properties.
+#   2. compile-check.sh applies the kotlinx-serialization compiler plugin and puts the real
+#      kotlinx-serialization-core jar ahead of the manifest-less copy embedded in
+#      intellij.libraries.ktor.utils.jar. Without either, every `@Serializable` file reports
+#      bogus errors that look exactly like drift.
+#
+# So a non-empty result here now means something real: either the pin drifted off the release
+# tag, or the release genuinely changed an API the checkout uses. Investigate before appending
+# -- an entry added to silence a failure hides exactly the signal this check exists to give.
+#
+# Captured against kotlin-lsp @ kotlin-lsp/v262.9593.0, dist 262.9593.0.

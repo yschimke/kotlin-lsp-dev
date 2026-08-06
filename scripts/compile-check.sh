@@ -20,6 +20,10 @@ VERSION="$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)"
 DIST="$ROOT/build/dist/kotlin-server-$VERSION"
 KOTLINC="$ROOT/build/kotlinc/bin/kotlinc"
 BASELINE="$ROOT/compile-check-baseline.txt"
+# Upstream applies the kotlinx-serialization plugin to these modules. Without it every
+# `@Serializable` companion's generated `serializer()` is unresolved, which shows up as drift
+# in files that are in fact perfectly in sync with the release.
+SER_PLUGIN="$(dirname "$KOTLINC")/../lib/kotlinx-serialization-compiler-plugin.jar"
 
 [[ -d "$LSP/features-impl" ]] || { echo "error: $LSP not populated — run: git submodule update --init upstream" >&2; exit 1; }
 
@@ -28,7 +32,13 @@ BASELINE="$ROOT/compile-check-baseline.txt"
 
 # Every jar in the distribution except the modules we compile from source -- otherwise the
 # stale copies shadow the checkout.
-CP="$(find "$DIST/lib" "$DIST/plugins" "$DIST/modules" -name '*.jar' \
+#
+# `intellij.libraries.ktor.utils.jar` embeds a full, manifest-less copy of kotlinx-serialization
+# core. Whichever copy comes first on the class path is where the serialization plugin reads the
+# runtime version from, and a missing manifest reads as "version unknown" -- which fails every
+# `@Serializable` file. Put the real core jar (Implementation-Version: 1.9.0) ahead of it.
+SER_CORE="$DIST/lib/intellij.libraries.kotlinx.serialization.core.jar"
+CP="$SER_CORE:$(find "$DIST/lib" "$DIST/plugins" "$DIST/modules" -name '*.jar' \
       | grep -vE 'language-server\.api\.features|language-server-plugins-(kotlin|java-base|editorconfig)-lsp' \
       | tr '\n' ':')"
 
@@ -40,7 +50,7 @@ echo "[compile-check] compiling against $VERSION ..."
 set +e
 "$KOTLINC" -cp "$CP" \
   -jvm-target 25 -language-version 2.4 -api-version 2.4 \
-  -Xcontext-parameters -Xjvm-default=all -Xwhen-guards \
+  -Xplugin="$SER_PLUGIN" -Xcontext-parameters -Xjvm-default=all -Xwhen-guards \
   -opt-in=org.jetbrains.kotlin.analysis.api.KaExperimentalApi \
   -opt-in=org.jetbrains.kotlin.analysis.api.KaIdeApi \
   -opt-in=org.jetbrains.kotlin.analysis.api.KaContextParameterApi \
