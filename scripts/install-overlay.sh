@@ -17,7 +17,9 @@ set -euo pipefail
 
 SERVER="${1:?usage: install-overlay.sh <server-dir> [overlay.jar]}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)"
+# The pinned release, overridable for a one-off build against a different one --
+# scripts/install.sh --version <v> sets this. dist.properties stays the repository's pin.
+VERSION="${KOTLIN_LSP_VERSION:-$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)}"
 OVERLAY_JAR="${2:-$ROOT/build/server/language-server.overlay-$VERSION.jar}"
 # The injection steps run from a temp dir, so both paths must survive the cd.
 [[ -d "$SERVER" ]] && SERVER="$(cd "$SERVER" && pwd)"
@@ -61,6 +63,15 @@ LAUNCHER_JAR_NAME="language-server.overlay.jar"
 cp "$OVERLAY_JAR" "$SERVER/lib/$LAUNCHER_JAR_NAME"
 cp "$ROOT/scripts/enhanced-server" "$SERVER/bin/enhanced-server"
 chmod +x "$SERVER/bin/enhanced-server"
+
+# Record which features this server actually carries. A feature whose LSP API is absent from the
+# release is skipped at build time, so "installed" is a property of the server, not of the source
+# tree -- and the smoke harness has to know the difference to avoid failing a check for a feature
+# that was correctly never built.
+BUILT="$ROOT/build/server/built-features.txt"
+if [[ -f "$BUILT" ]]; then
+  cp "$BUILT" "$SERVER/kotlin-lsp-dev-features.txt"
+fi
 
 echo "Overlay applied to $SERVER"
 echo "Enhanced server: $SERVER/bin/enhanced-server --stdio"

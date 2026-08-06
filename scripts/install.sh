@@ -5,6 +5,7 @@
 #   scripts/install.sh --to DIR            install to DIR
 #   scripts/install.sh --vscode            install into the bundled server of the official
 #                                          VS Code extension, in place
+#   scripts/install.sh --version 262.9593.0  build against a release other than the pinned one
 #   scripts/install.sh --print-config      just print the editor configuration and exit
 #
 # What it does: downloads the pinned official release, builds the overlay against it, applies
@@ -17,16 +18,22 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)"
+# The pinned release, overridable for a one-off build against a different one --
+# scripts/install.sh --version <v> sets this. dist.properties stays the repository's pin.
+VERSION="${KOTLIN_LSP_VERSION:-$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)}"
 TARGET="${XDG_DATA_HOME:-$HOME/.local/share}/kotlin-lsp-enhanced"
 MODE=standalone
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --to) TARGET="${2:?--to needs a directory}"; shift 2 ;;
+    # For running a release other than the repository's pin -- e.g. when the newest release has
+    # a regression that breaks your project's import. Features whose API is absent from that
+    # release are skipped by build-server.sh, exactly as for the pin.
+    --version) VERSION="${2:?--version needs a build number}"; export KOTLIN_LSP_VERSION="$VERSION"; shift 2 ;;
     --vscode) MODE=vscode; shift ;;
     --print-config) MODE=print-config; shift ;;
-    -h|--help) sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+    -h|--help) sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -92,6 +99,8 @@ JDK="$(find_jdk25)" || {
 export JAVA_HOME="$JDK"
 echo "[install] JDK:     $JAVA_HOME"
 echo "[install] release: $VERSION"
+PINNED="$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)"
+[[ "$VERSION" == "$PINNED" ]] || echo "[install] note:    the repository pin is $PINNED; building against $VERSION"
 
 "$ROOT/scripts/fetch-dist.sh"
 "$ROOT/scripts/build-server.sh" --jar-only

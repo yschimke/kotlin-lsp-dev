@@ -11,7 +11,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)"
+# The pinned release, overridable for a one-off build against a different one --
+# scripts/install.sh --version <v> sets this. dist.properties stays the repository's pin.
+VERSION="${KOTLIN_LSP_VERSION:-$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)}"
 DIST_SRC="$ROOT/build/dist/kotlin-server-$VERSION"
 KOTLINC="$ROOT/build/kotlinc/bin/kotlinc"
 # `jar` tool (the release JBR is a JRE without it) — prefer JAVA_HOME, fall back to PATH
@@ -48,9 +50,10 @@ CP="$(find "$DIST_SRC/lib" "$DIST_SRC/plugins" "$DIST_SRC/modules" -name '*.jar'
 SER_PLUGIN="$(dirname "$KOTLINC")/../lib/kotlinx-serialization-compiler-plugin.jar"
 CLASSES="$OUT/classes"
 LAUNCHER_CLASSES="$OUT/launcher-classes"
-rm -rf "$CLASSES" "$LAUNCHER_CLASSES" "$OUT/services-all.txt"
+rm -rf "$CLASSES" "$LAUNCHER_CLASSES" "$OUT/services-all.txt" "$OUT/built-features.txt"
 mkdir -p "$CLASSES" "$LAUNCHER_CLASSES"
 : > "$OUT/services-all.txt"
+: > "$OUT/built-features.txt"
 
 # Compile the composition-server entry point separately from the release-gated features. The
 # installed enhanced-server script runs it on a small class path; it proxies the official launcher
@@ -68,7 +71,15 @@ compile_feature() {
     return 0
   fi
   mapfile -t srcs < <(find "$feat/core" "$feat/ext" -name '*.kt' 2>/dev/null)
-  [[ ${#srcs[@]} -eq 0 ]] && return 0
+  if [[ ${#srcs[@]} -eq 0 ]]; then
+    # No compiled sources means the feature lives in the composition server rather than in an
+    # injected provider -- rangeFormatting's capability repair, documentHighlight. Those ship
+    # with the launcher, which is always built, so they are installed unconditionally and belong
+    # in the manifest; omitting them would have the smoke harness skip checks that should run.
+    echo "$name" >> "$OUT/built-features.txt"
+    echo "[build-server]   ✓ $name (served by the composition server)"
+    return 0
+  fi
   local fout="$OUT/feat-$name"; rm -rf "$fout"; mkdir -p "$fout"
   if "$KOTLINC" -cp "$CP" -jvm-target 25 -language-version 2.4 -api-version 2.4 \
       -Xplugin="$SER_PLUGIN" -Xcontext-parameters -Xjvm-default=all \
@@ -78,6 +89,7 @@ compile_feature() {
       -nowarn -d "$fout" "${srcs[@]}" 2>"$OUT/feat-$name.log"; then
     cp -r "$fout/." "$CLASSES/"
     [[ -f "$feat/resources/$SERVICES" ]] && cat "$feat/resources/$SERVICES" >> "$OUT/services-all.txt"
+    echo "$name" >> "$OUT/built-features.txt"
     echo "[build-server]   ✓ $name (runnable on $VERSION)"
   else
     echo "[build-server]   ⊘ $name SKIPPED — LSP API not in $VERSION (PR-ready, not runnable here; see build/feat-$name.log)"

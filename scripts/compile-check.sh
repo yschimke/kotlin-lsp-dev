@@ -16,7 +16,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LSP="$ROOT/upstream"
-VERSION="$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)"
+# The pinned release, overridable for a one-off build against a different one --
+# scripts/install.sh --version <v> sets this. dist.properties stays the repository's pin.
+VERSION="${KOTLIN_LSP_VERSION:-$(grep -E '^kotlinLspVersion=' "$ROOT/dist.properties" | cut -d= -f2)}"
 DIST="$ROOT/build/dist/kotlin-server-$VERSION"
 KOTLINC="$ROOT/build/kotlinc/bin/kotlinc"
 BASELINE="$ROOT/compile-check-baseline.txt"

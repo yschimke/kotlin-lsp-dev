@@ -279,6 +279,19 @@ def main():
             stock = True
         else:
             sys.exit("unknown argument: %s\n\n%s" % (arg, __doc__))
+    # A server built against an older release legitimately lacks features whose LSP API that
+    # release predates -- build-server.sh skips them. Checking those would fail for the one reason
+    # that is not a bug, so honour the manifest install-overlay.sh leaves behind. Absent manifest
+    # (a hand-built server) means check everything, which is the old behaviour.
+    manifest = os.path.join(server_dir, "kotlin-lsp-dev-features.txt")
+    if os.path.isfile(manifest) and not stock:
+        with open(manifest) as fh:
+            installed = {line.strip() for line in fh if line.strip()}
+        skipped = [n for n, _ in features if n not in installed]
+        if skipped:
+            print("[smoke] not built into this server, skipping: %s" % ", ".join(sorted(skipped)))
+        features = [(n, m) for n, m in features if n in installed]
+
     if not features:
         sys.exit("no feature defines overlay/features/<name>/smoke/check.py")
     if run_each and any(arg.startswith("--expect=") for arg in sys.argv[2:]):
@@ -327,6 +340,11 @@ def main():
     # One workspace holding every feature's fixture as its own file, so a single server start
     # covers them all. Each check only ever sees the URI of its own fixture.
     workdir = os.environ.get("SMOKE_WORKDIR")
+    # A run leaves a whole workspace index behind -- hundreds of megabytes. On a tmpfs /tmp a
+    # day's runs will fill the filesystem, and the first symptom is unrelated: servers dying
+    # mid-request with broken pipes. Successful runs clean up after themselves; failures keep the
+    # workspace, because that is exactly when you want to look at it.
+    ephemeral = workdir is None
     root = (
         os.path.join(workdir, "kotlin-lsp-smoke")
         if workdir
@@ -416,6 +434,11 @@ def main():
                     print("[smoke]   PASS %-16s %s" % (name, detail))
     finally:
         lsp.shutdown()
+
+    if ephemeral and not failures:
+        shutil.rmtree(root, ignore_errors=True)
+    elif failures:
+        print("[smoke] workspace kept for inspection: %s" % root)
 
     if stock:
         if failures:
