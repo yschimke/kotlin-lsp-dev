@@ -191,6 +191,20 @@ around them landing upstream. When choosing what to build, weight **"runnable on
 release now"** far above "clean upstream shape". The "PR-then-drop" lifecycle in README.md is
 aspirational, not a schedule.
 
+**This decides the test shape too**, which is otherwise a recurring question:
+
+- **Tests stay on JUnit 4** (`BasePlatformTestCase`). Upstream is JUnit 5, so a contributed test
+  would need rewriting — but that cost is only real if a test is ever contributed, and migrating
+  engines now is a certain cost against a hypothetical benefit.
+- **Sample projects use `workspace.json`**, not Gradle. It is hermetic and needs no build-tool
+  download in CI. Gradle would match upstream's testData convention more closely at the cost of
+  network and time, for realism nothing currently needs.
+- **Do not open an upstream issue proposing a test harness.** Upstream has no provider-level
+  harness to mirror, so we would be proposing rather than adopting one — to a repository that
+  merges nothing.
+
+Revisit only if upstream starts merging external contributions.
+
 ## Resolved investigations
 
 - **Inlay hints are additive.** Disassembly and a live stdio smoke test on `262.8190.0` confirm
