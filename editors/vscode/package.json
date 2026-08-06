@@ -5,14 +5,32 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "publisher": "kotlin-lsp-dev",
-  "repository": { "url": "https://github.com/yschimke/kotlin-lsp-dev", "directory": "editors/vscode" },
-  "engines": { "vscode": "^1.90.0" },
-  "categories": ["Programming Languages"],
-  "activationEvents": ["onLanguage:kotlin"],
+  "repository": {
+    "url": "https://github.com/yschimke/kotlin-lsp-dev",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:kotlin"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
-      { "id": "kotlin", "aliases": ["Kotlin"], "extensions": [".kt", ".kts"] }
+      {
+        "id": "kotlin",
+        "aliases": [
+          "Kotlin"
+        ],
+        "extensions": [
+          ".kt",
+          ".kts"
+        ]
+      }
     ],
     "configuration": {
       "title": "Kotlin (kotlin-lsp-dev)",
@@ -20,29 +38,61 @@
         "kotlinLspDev.serverPath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Directory of a standalone server installed by `scripts/install.sh`. Empty means `~/.local/share/kotlin-lsp-enhanced`. The server is expected to be self-contained — this extension neither downloads a distribution nor looks for a JDK."
+          "markdownDescription": "Directory of a standalone server installed by `scripts/install.sh`. Empty means `~/.local/share/kotlin-lsp-enhanced`. The server is expected to be self-contained \u2014 this extension neither downloads a distribution nor looks for a JDK."
+        },
+        "kotlinLspDev.serverPort": {
+          "type": "number",
+          "default": 0,
+          "markdownDescription": "Attach to a server already listening on `127.0.0.1:<port>` instead of starting one. `0` (default) starts the server over stdio and ties its lifetime to the editor.\n\nStart one yourself with `bin/enhanced-server --socket 9999`. Attaching keeps its log in your own terminal and keeps the JVM warm across editor reloads, at the cost of having to start it."
         },
         "kotlinLspDev.log": {
           "type": "string",
-          "enum": ["off", "routing", "verbose", "trace"],
+          "enum": [
+            "off",
+            "routing",
+            "verbose",
+            "trace"
+          ],
           "default": "routing",
           "description": "Routing detail the composition server writes to its log (KOTLIN_LSP_DEV_LOG)."
         },
         "kotlinLspDev.trace.server": {
           "type": "string",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "default": "off",
           "description": "Trace the LSP traffic between VS Code and the server, in the extension's output channel."
         }
       }
     },
     "commands": [
-      { "command": "kotlinLspDev.doctor", "title": "Kotlin: Doctor (workspace health report)" },
-      { "command": "kotlinLspDev.analyzeStackTrace", "title": "Kotlin: Analyze JVM stack trace" },
-      { "command": "kotlinLspDev.findTextInDependencyJars", "title": "Kotlin: Find text in dependency jars" },
-      { "command": "kotlinLspDev.copyFullyQualifiedName", "title": "Kotlin: Copy fully-qualified name" },
-      { "command": "kotlinLspDev.restart", "title": "Kotlin: Restart language server" },
-      { "command": "kotlinLspDev.showOutput", "title": "Kotlin: Show language server output" }
+      {
+        "command": "kotlinLspDev.doctor",
+        "title": "Kotlin: Doctor (workspace health report)"
+      },
+      {
+        "command": "kotlinLspDev.analyzeStackTrace",
+        "title": "Kotlin: Analyze JVM stack trace"
+      },
+      {
+        "command": "kotlinLspDev.findTextInDependencyJars",
+        "title": "Kotlin: Find text in dependency jars"
+      },
+      {
+        "command": "kotlinLspDev.copyFullyQualifiedName",
+        "title": "Kotlin: Copy fully-qualified name"
+      },
+      {
+        "command": "kotlinLspDev.restart",
+        "title": "Kotlin: Restart language server"
+      },
+      {
+        "command": "kotlinLspDev.showOutput",
+        "title": "Kotlin: Show language server output"
+      }
     ]
   },
   "scripts": {

@@ -51,6 +51,7 @@ and the parts of Metals and rust-analyzer worth borrowing are the ones we have n
 | Setting | Meaning |
 |---|---|
 | `kotlinLspDev.serverPath` | Server directory; empty means `~/.local/share/kotlin-lsp-enhanced` |
+| `kotlinLspDev.serverPort` | Attach to `127.0.0.1:<port>` instead of starting a server. `0` (default) starts one over stdio |
 | `kotlinLspDev.log` | `KOTLIN_LSP_DEV_LOG` for the composition server: `off`, `routing`, `verbose`, `trace` |
 | `kotlinLspDev.trace.server` | Trace LSP traffic in the output channel |
 
@@ -74,6 +75,32 @@ activates on `onLanguage:kotlin`, so nothing happens until a `.kt` file is opene
 
 **Disable the official *Kotlin by JetBrains* extension first** — two clients claiming `.kt` files
 will both start a server and fight over the same files.
+
+## One server per project
+
+The server's index lives in a shared cache keyed by workspace
+(`~/.cache/JetBrains/analyzer/workspaces/<hash>`) and is **locked** while a server holds it —
+independently of `--system-path`. So a second server on the same project cannot start, and fails
+with:
+
+```
+While lock file: .../index/kotlin-server/rocks/v239/LOCK: Resource temporarily unavailable
+```
+
+Restarting cannot fix that, because the lock belongs to another process. The extension detects it,
+stops rather than retrying forever, and offers to open the `kotlinLspDev.serverPort` setting.
+
+If you already run a server yourself — to watch its routing log, or to keep the JVM warm across
+editor reloads — attach to it instead of starting a second one:
+
+```sh
+~/.local/share/kotlin-lsp-enhanced/bin/enhanced-server --socket 9999
+```
+
+```jsonc
+// settings.json
+{ "kotlinLspDev.serverPort": 9999 }
+```
 
 ## Borrowing from
 
