@@ -72,6 +72,51 @@ object KotlinLspServer {
         }
     }
 
+    /**
+     * Routing visibility on stderr (never stdout -- in stdio mode that is the protocol).
+     *
+     * Set `KOTLIN_LSP_DEV_LOG`:
+     *   `routing` (default) one line per client request, saying where it went
+     *   `verbose`           also notifications and the requests this layer makes to the child
+     *   `trace`             also the full JSON of every message, both directions
+     *   `off`               silence
+     *
+     * `trace` is what you want when the question is "what did the server actually return" -- for
+     * example why a rename changed less than expected. Note this only ever sees our own boundary:
+     * it cannot show what VS Code chose to send, or what it did with a response. For that side,
+     * set `"intellij.trace.server": "verbose"` in VS Code and read its output channel; the two
+     * logs together cover the whole path.
+     *
+     * `KOTLIN_LSP_DEV_LOG_BODY` caps how much of a traced body is printed (default 2000 chars).
+     */
+    private object Log {
+        private val level = (System.getenv("KOTLIN_LSP_DEV_LOG") ?: "routing").lowercase()
+        val routing = level != "off"
+        val verbose = level == "verbose" || level == "trace"
+        val trace = level == "trace"
+        private val bodyLimit = System.getenv("KOTLIN_LSP_DEV_LOG_BODY")?.toIntOrNull() ?: 2000
+        private val start = System.nanoTime()
+
+        fun line(kind: String, method: String, detail: String = "") {
+            if (!routing) return
+            val millis = (System.nanoTime() - start) / 1_000_000
+            System.err.printf(
+                "[kotlin-lsp-dev] %8.3fs %-7s %-38s %s%n",
+                millis / 1000.0, kind, method, detail,
+            )
+            System.err.flush()
+        }
+
+        /** Full message body, for `trace`. [direction] is a short arrow-ish label. */
+        fun body(direction: String, message: JsonObject) {
+            if (!trace) return
+            val text = message.toString()
+            val shown = if (text.length <= bodyLimit) text else text.take(bodyLimit) + "...<truncated>"
+            System.err.println("[kotlin-lsp-dev]          $direction $shown")
+            System.err.flush()
+        }
+    }
+
     private sealed interface Transport {
         object Stdio : Transport
         data class Socket(val port: Int) : Transport
@@ -160,20 +205,37 @@ object KotlinLspServer {
 
         fun pumpClient(input: InputStream) {
             forwardFrames(input) { message, raw ->
+                Log.body("client->", message)
+                val method = message.get("method")?.asString
+                val id = message.get("id")
                 when {
-                    message.get("method")?.asString == "initialize" -> {
-                        initializeId.set(message.get("id")?.deepCopy())
+                    method == "initialize" -> {
+                        initializeId.set(id?.deepCopy())
+                        Log.line("child", method, "id=$id (response will be patched)")
                         emitToChild(raw)
                     }
-                    isRequest(message) && message.get("method")?.asString == DOCUMENT_HIGHLIGHT ->
+                    isRequest(message) && method == DOCUMENT_HIGHLIGHT -> {
+                        Log.line("LOCAL", method, "id=$id -- answered here, not forwarded")
                         answerDocumentHighlight(message)
-                    else -> emitToChild(raw)
+                    }
+                    else -> {
+                        // Requests are one line each; notifications (didChange on every keystroke)
+                        // would drown that out, so they are verbose-only.
+                        if (method != null) {
+                            if (id != null) Log.line("child", method, "id=$id")
+                            else if (Log.verbose) Log.line("notify", method)
+                        } else if (Log.verbose) {
+                            Log.line("child", "(response)", "id=$id")
+                        }
+                        emitToChild(raw)
+                    }
                 }
             }
         }
 
         fun pumpChild(input: InputStream) {
             forwardFrames(input) { message, raw ->
+                Log.body("<-child ", message)
                 val id = message.get("id")
                 val handler = if (id != null && id.isJsonPrimitive && id.asJsonPrimitive.isString) {
                     pending.remove(id.asString)
@@ -181,7 +243,10 @@ object KotlinLspServer {
                     null
                 }
                 when {
-                    handler != null -> handler(message)
+                    handler != null -> {
+                        if (Log.verbose) Log.line("intercept", "(child response)", "id=${id?.asString}")
+                        handler(message)
+                    }
                     // Only the initialize response is rewritten; everything else -- including
                     // large semantic-token and diagnostic payloads -- is relayed byte for byte
                     // rather than parsed and re-serialised on the way through.
@@ -213,11 +278,14 @@ object KotlinLspServer {
                 // The declaration is part of what an editor highlights, so ask for it too.
                 add("context", JsonObject().apply { addProperty("includeDeclaration", true) })
             }
+            val started = System.nanoTime()
             askChild(REFERENCES, referenceParams) { response ->
+                val millis = (System.nanoTime() - started) / 1_000_000
                 if (response.has("error")) {
                     // A failure to resolve is not a protocol error for highlighting -- an editor
                     // asks on every cursor move, and an error popup per keystroke is worse than
                     // no highlight.
+                    Log.line("  \u2514", REFERENCES, "child errored after ${millis}ms -> 0 highlights")
                     respondToClient(requestId, JsonArray())
                     return@askChild
                 }
@@ -231,6 +299,10 @@ object KotlinLspServer {
                     // wrong colours the highlight incorrectly in editors that distinguish them.
                     highlights.add(JsonObject().apply { add("range", range.deepCopy()) })
                 }
+                Log.line(
+                    "  \u2514", REFERENCES,
+                    "${locations.size()} reference(s) -> ${highlights.size()} in-file highlight(s) in ${millis}ms",
+                )
                 respondToClient(requestId, highlights)
             }
         }
@@ -239,6 +311,7 @@ object KotlinLspServer {
         private fun askChild(method: String, params: JsonObject, onResponse: (JsonObject) -> Unit) {
             val id = LOCAL_ID_PREFIX + localIds.incrementAndGet()
             pending[id] = onResponse
+            if (Log.verbose) Log.line("  \u2192", method, "asked child on our behalf, id=$id")
             emitToChild(JsonObject().apply {
                 addProperty("jsonrpc", "2.0")
                 addProperty("id", id)
@@ -266,8 +339,9 @@ object KotlinLspServer {
                 ?: return false
             capabilities.addProperty(RANGE_FORMATTING_CAPABILITY, true)
             capabilities.addProperty(DOCUMENT_HIGHLIGHT_CAPABILITY, true)
-            System.err.println(
-                "[kotlin-lsp-dev] advertised $RANGE_FORMATTING_CAPABILITY, $DOCUMENT_HIGHLIGHT_CAPABILITY"
+            Log.line(
+                "patched", "initialize",
+                "advertised $RANGE_FORMATTING_CAPABILITY, $DOCUMENT_HIGHLIGHT_CAPABILITY",
             )
             return true
         }

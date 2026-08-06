@@ -145,6 +145,28 @@ server needs no JDK on `PATH`. Verify it end-to-end with:
 ./scripts/smoke-test.py ~/.local/share/kotlin-lsp-enhanced
 ```
 
+### Seeing where a request goes
+
+The composition server logs its routing to stderr (never stdout — in stdio mode that is the
+protocol):
+
+```
+[kotlin-lsp-dev]    0.004s child   initialize                    id=1 (response will be patched)
+[kotlin-lsp-dev]    1.741s patched initialize                    advertised documentRangeFormattingProvider, ...
+[kotlin-lsp-dev]    1.743s LOCAL   textDocument/documentHighlight id=2 -- answered here, not forwarded
+[kotlin-lsp-dev]    2.119s   └     textDocument/references        3 reference(s) -> 3 in-file highlight(s) in 372ms
+[kotlin-lsp-dev]    5.021s child   textDocument/foldingRange      id=4
+```
+
+`KOTLIN_LSP_DEV_LOG` selects the level: `routing` (default, one line per request), `verbose` (also
+notifications and the requests this layer makes on your behalf), `trace` (also full JSON bodies,
+capped by `KOTLIN_LSP_DEV_LOG_BODY`), or `off`.
+
+**This only sees our own boundary.** It cannot show what the editor chose to send, or what it did
+with a response — so it answers "what did the server return" but not "why did nothing happen in
+the UI". For the other side set `"intellij.trace.server": "verbose"` in VS Code and read its output
+channel. The two logs together cover the whole path.
+
 ### Connecting an editor
 
 The server speaks both transports the official VS Code extension uses:
