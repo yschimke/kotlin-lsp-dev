@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "compile kotlin extension",
+      "type": "shell",
+      "command": "npm install --no-audit --no-fund && npm run compile",
+      "options": { "cwd": "${workspaceFolder}/editors/vscode" },
+      "problemMatcher": "$tsc",
+      "group": "build"
+    }
+  ]
+}

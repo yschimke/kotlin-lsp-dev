@@ -56,13 +56,21 @@ and the parts of Metals and rust-analyzer worth borrowing are the ones we have n
 
 ## Build and run
 
+Press **F5** — from either the repository root or this folder. Both ship a
+`Run Kotlin extension (dev host)` launch configuration, and each runs `npm install` and compiles
+first, so there is nothing to do beforehand. (Without a launch configuration VS Code asks you to
+"Select debugger" and offers Node/Python/Chrome, none of which are right.)
+
+Or build by hand:
+
 ```sh
 cd editors/vscode
 npm install
 npm run compile
 ```
 
-Then open this folder in VS Code and press F5 for an Extension Development Host.
+In the Extension Development Host, **open a folder containing Kotlin sources** — the extension
+activates on `onLanguage:kotlin`, so nothing happens until a `.kt` file is opened.
 
 **Disable the official *Kotlin by JetBrains* extension first** — two clients claiming `.kt` files
 will both start a server and fight over the same files.
