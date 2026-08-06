@@ -39,9 +39,48 @@ releases of identical LSP surface.
 | **Additive** — merges every provider | `codeAction`, `foldingRange`, `inlayHint`, `diagnostic`, `definition`, `typeDefinition`, `implementation`, `references`, `documentSymbol`, `workspace/symbol`, `semanticTokens`, `workspace/executeCommand` (keyed by unique command name) | ✅ Safe. Adding a provider is pure gain. |
 | **Empty slot** | `typeHierarchy` | ✅ No built-in Kotlin provider, so an added one wins outright. |
 | **First non-null wins** | `hover`, `rename`, `callHierarchy/prepare` | ⚠️ A built-in already occupies the slot and ServiceLoader order is not controllable — there is no priority field. At best your provider fires only when the built-in returns null. Do not rely on it. |
+| **Served by the composition server** | `rangeFormatting` (capability repair), `documentHighlight` (answered locally from the child's `references`) | ✅ Outside the child's dispatcher entirely. See "When a feature cannot be a provider" below. |
 | **Adding a provider BREAKS the request** | `signatureHelp`, `formatting`, `rangeFormatting`, `completion` | ❌ **Never add these.** See below. |
 | **Empty slot** | `codeLens` | ✅ New in `263.2689.0` — advertised and routed, with only the DAP run-main lens built in. This is what un-gated `overlay/features/code-vision`. |
-| **No capability advertised** | `documentHighlight`, `selectionRange`, `documentLink`, `declaration`, `onTypeFormatting`, `linkedEditingRange`, `documentColor`, `inlineValue`, `moniker`, `prepareRename` | ❌ Unreachable in-process. Absent from the `initialize` result on 263.2689.0 (verified with `probe-capabilities.py`), so no conformant client sends them. A capability the server *does* implement but fails to advertise can be repaired by the composition server — that is exactly the range-formatting case. One it does not implement cannot. |
+| **No capability advertised** | `selectionRange`, `documentLink`, `declaration`, `onTypeFormatting`, `linkedEditingRange`, `documentColor`, `inlineValue`, `moniker`, `prepareRename` | ⚠️ Unreachable **in-process** — absent from the `initialize` result on 263.2689.0 (verified with `probe-capabilities.py`), and no provider interface exists to register against. Not necessarily unreachable at the boundary: see below. |
+
+### When a feature cannot be a provider
+
+The rows above are about the **in-process** overlay. The composition server (`bin/enhanced-server`,
+source in `launcher/overlay/server/KotlinLspServer.kt`) owns the outer LSP boundary and is not
+bound by any of them. It starts the shipped server as a child and can advertise a capability the
+child does not, answer a request without forwarding it, or rewrite what the child returned.
+
+That gives three tiers, and you should pick the **highest** one that works:
+
+1. **In-process provider** — the default. Cheapest, upstream-shaped, and runs inside the server's
+   own analysis context. Requires an advertised capability and additive dispatch.
+2. **Capability repair at the boundary** — the server implements the operation but never
+   advertises it, so no client asks. Set the flag on the initialize response and change nothing
+   else. This is `rangeFormatting`.
+3. **Answered at the boundary** — the server has no handler *and* no provider interface. The
+   composition server implements the operation itself. This is `documentHighlight`.
+
+Tier 3 has a hard constraint worth stating plainly: **the boundary has no Kotlin analysis.** It
+sees JSON, not PSI. So a tier-3 feature is only honest if it can be expressed in terms of requests
+the child already answers. `documentHighlight` qualifies because it is a filtered
+`textDocument/references` — the child does the resolution and we keep the results in one file.
+A feature needing real semantic analysis the child will not perform cannot be faked here; do not
+advertise a capability you can only approximate textually, because a client that trusts the
+advertisement will show wrong results rather than none.
+
+Mechanics, if you add one:
+
+- Requests originated by the boundary use string ids prefixed `kotlin-lsp-dev/` so they cannot
+  collide with the client's id space; responses to those are intercepted, never relayed.
+- Both pumps write to the client, so all writes go through the synchronized emit helpers.
+- Only the initialize response is re-encoded. Everything else is relayed byte for byte — do not
+  add a parse/re-serialise step to the hot path.
+- Errors from the child should usually become empty results for cursor-driven requests. Editors
+  send them on every keystroke, and an error per keystroke is worse than no result.
+- Give the feature a directory under `overlay/features/<name>/` with a `README.md` and
+  `smoke/check.py` even though it has no `core/`/`ext/`. The smoke check is the only thing that
+  can prove a boundary feature works, and it keeps the delete-the-directory property.
 
 ### Never add a provider for these
 

@@ -10,12 +10,14 @@ Kotlin, unit-tested here, and injected into the shipped server through the platf
 `LanguageServerExtension` ServiceLoader — no forking, no patching of JetBrains jars, no bytecode
 manipulation.
 
-The installed overlay also provides `bin/enhanced-server`, a small Kotlin composition server. In
-stdio mode it starts the official `bin/intellij-server` as a child and owns the outer LSP boundary,
-so it can repair or implement operations that cannot safely compose as in-process providers. The
-first repair advertises the shipped, working range-formatting handler that the pinned server omits
-from its initialize capabilities. All additive features still run inside the child through the
-normal extension API.
+The installed overlay also provides `bin/enhanced-server`, a small Kotlin composition server. It
+starts the official `bin/intellij-server` as a child and owns the outer LSP boundary, over stdio or
+TCP, so it can repair or implement operations that cannot compose as in-process providers at all.
+Two things live there today: advertising the shipped, working range-formatting handler that the
+server omits from its initialize capabilities, and *implementing* `textDocument/documentHighlight`,
+for which the server has neither a handler nor a provider interface — it is answered from the
+child's own `textDocument/references`, so occurrences come from real Kotlin resolution. All
+additive features still run inside the child through the normal extension API.
 
 > [!IMPORTANT]
 > **We publish only our own Apache-2.0 code** (`language-server.overlay-*.jar`), never JetBrains'
@@ -79,6 +81,7 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Code vision** code lenses (usages / implementations / run-test) — new | ✅ runnable | unit tests + CI smoke test (usage / implementation / run-test lenses, exact counts) |
 | **Closing-brace inlay hints** — enhancement | ✅ runnable | unit tests + CI smoke test (function + class hints, merged with built-ins) |
 | **Range formatting capability** (`textDocument/rangeFormatting`) — repair | ✅ runnable via composition server | CI smoke test (advertised capability + real formatting edits) |
+| **Document highlight** (`textDocument/documentHighlight`) — new, proxy-only | ✅ runnable via composition server | CI smoke test (exact highlight positions, decoy excluded) |
 
 **Every feature is runnable as of `263.2689.0`.** Code vision was release-gated for its whole
 life — releases through `262.9593.0` neither advertised `codeLensProvider` nor shipped
