@@ -45,6 +45,7 @@ scripts/
   install-overlay.sh apply the overlay jar and composition-server launcher
   compile-check.sh   type-check the pinned upstream sources vs the release (drift detection)
   smoke-test.py      drive a patched server (stdio or TCP) and assert the features answer
+  check-client-contract.py  assert the server still provides what the VS Code client assumes
   probe-capabilities.py print the initialize result a server advertises
   install.sh         one command: fetch + build + apply + report editor config
 ```
@@ -167,7 +168,27 @@ with a response — so it answers "what did the server return" but not "why did 
 the UI". For the other side set `"intellij.trace.server": "verbose"` in VS Code and read its output
 channel. The two logs together cover the whole path.
 
-### Connecting an editor
+### VS Code
+
+`editors/vscode/` is a client for this server, at parity with the official *Kotlin by JetBrains*
+extension — decompiled-source navigation, debugging, workspace export, reload, organize imports,
+file templates — plus the operations the overlay adds, which the official extension cannot reach
+because nothing there invokes them: the doctor report, stack-trace analysis, dependency-jar search
+and copy-FQN.
+
+It also shows indexing state in the status bar, driven by the server's own `intellij/ready-for-test`.
+That matters more than it sounds: before that signal, index-backed operations answer from an
+incomplete index *without failing*, which is why a rename can come back with the declaration
+renamed and every usage missed.
+
+Press F5 from the repository root for an Extension Development Host. See
+[editors/vscode/README.md](editors/vscode/README.md) for what is and is not carried over, and why.
+
+`scripts/check-client-contract.py` asserts the server still provides what that client assumes —
+the commands it calls and the shapes it reads. Those assumptions are about another program, and
+when one is wrong the client does not fail loudly, it quietly does nothing.
+
+### Connecting another editor
 
 The server speaks both transports the official VS Code extension uses:
 
