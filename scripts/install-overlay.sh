@@ -38,5 +38,12 @@ MERGED="$WORK/merged-services"
 mkdir -p "$WORK/$(dirname "$SERVICES")"; cp "$MERGED" "$WORK/$SERVICES"
 ( cd "$WORK" && "$JAR" uf "$KOTLIN_JAR" "$SERVICES" )
 
+# Install the composition main and its launcher alongside the unmodified product launcher.
+LAUNCHER_JAR_NAME="language-server.overlay.jar"
+cp "$OVERLAY_JAR" "$SERVER/lib/$LAUNCHER_JAR_NAME"
+cp "$ROOT/scripts/enhanced-server" "$SERVER/bin/enhanced-server"
+chmod +x "$SERVER/bin/enhanced-server"
+
 echo "Overlay applied to $SERVER"
+echo "Enhanced server: $SERVER/bin/enhanced-server --stdio"
 echo "Registered extensions:"; sed 's/^/  /' "$MERGED"

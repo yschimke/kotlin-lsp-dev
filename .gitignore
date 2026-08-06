@@ -7,3 +7,6 @@ local.properties
 
 # smoke-test.py imports each feature's smoke/check.py
 __pycache__/
+
+# agent worktrees / local session state
+.claude/

@@ -10,6 +10,13 @@ Kotlin, unit-tested here, and injected into the shipped server through the platf
 `LanguageServerExtension` ServiceLoader — no forking, no patching of JetBrains jars, no bytecode
 manipulation.
 
+The installed overlay also provides `bin/enhanced-server`, a small Kotlin composition server. In
+stdio mode it starts the official `bin/intellij-server` as a child and owns the outer LSP boundary,
+so it can repair or implement operations that cannot safely compose as in-process providers. The
+first repair advertises the shipped, working range-formatting handler that the pinned server omits
+from its initialize capabilities. All additive features still run inside the child through the
+normal extension API.
+
 > [!IMPORTANT]
 > **We publish only our own Apache-2.0 code** (`language-server.overlay-*.jar`), never JetBrains'
 > proprietary server binaries. You download the official server yourself and apply the overlay
@@ -33,7 +40,7 @@ scripts/
   fetch-dist.sh      download + unpack the pinned release
   fetch-kotlinc.sh   download the pinned standalone Kotlin compiler
   build-server.sh    compile features vs the release → overlay jar (+ local enhanced tarball)
-  install-overlay.sh apply the overlay jar to a server you downloaded
+  install-overlay.sh apply the overlay jar and composition-server launcher
   compile-check.sh   type-check the pinned upstream sources vs the release (drift detection)
   smoke-test.py      drive a patched server over stdio and assert the features answer
 ```
@@ -69,6 +76,7 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Implement/override members** — declaration-generation code actions | ✅ runnable | unit tests + CI smoke test (direct implementation edit) |
 | **Code vision** code lenses (usages / implementations / run-test) — new | ⊘ release-gated — `codeLens` API postdates the release | unit tests + PR-ready adapter |
 | **Closing-brace inlay hints** — enhancement | ✅ runnable | unit tests + CI smoke test (function + class hints, merged with built-ins) |
+| **Range formatting capability** (`textDocument/rangeFormatting`) — repair | ✅ runnable via composition server | CI smoke test (advertised capability + real formatting edits) |
 
 **Why some features aren't runnable here** — a feature's LSP API may **postdate** the newest
 public release (there is no newer server to pin), or the shipped request path may not safely
@@ -115,8 +123,8 @@ cd kotlin-lsp-dev
 ./scripts/smoke-test.py /path/to/kotlin-server-<v>   # end-to-end: does the patched server answer?
 ```
 
-Point your editor at the patched server (`bin/intellij-server --stdio`, or VS Code's
-`intellij.dev.serverPort` to attach to a running one).
+Point your editor at the composition server (`bin/enhanced-server --stdio`). The stock
+`bin/intellij-server` remains available, but bypasses proxy-only capability repairs.
 
 ## Testing
 
@@ -143,6 +151,10 @@ specifically. Run it against a stock server whenever you add or change a check:
 (Kotlin source) and a `check(lsp, uri)`; the harness discovers them, writes every fixture into one
 workspace, starts the server once, and runs each check against its own file. `--expect=<names>`
 narrows the run.
+
+CI runs the suite twice. The default combined run proves all extensions and proxy repairs coexist
+in one server. `--each` starts a fresh server and workspace for every feature, proving that each
+check passes independently and making registration or order-dependent failures easier to isolate.
 
 The workspace carries a `workspace.json` for the server's JSON workspace importer. That module
 definition is load-bearing: without it the files are opened outside any module and index-backed

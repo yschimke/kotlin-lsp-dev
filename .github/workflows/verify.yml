@@ -122,5 +122,8 @@ jobs:
           cp -r "build/dist/kotlin-server-$version" build/smoke-server
           ./scripts/install-overlay.sh build/smoke-server
 
-      - name: Run LSP queries against the patched server
+      - name: Run combined LSP queries against the patched server
         run: ./scripts/smoke-test.py build/smoke-server
+
+      - name: Run each feature in an isolated server
+        run: ./scripts/smoke-test.py build/smoke-server --each

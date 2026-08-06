@@ -47,7 +47,19 @@ esac
 CP="$(find "$DIST_SRC/lib" "$DIST_SRC/plugins" "$DIST_SRC/modules" -name '*.jar' | tr '\n' ':')"
 SER_PLUGIN="$(dirname "$KOTLINC")/../lib/kotlinx-serialization-compiler-plugin.jar"
 CLASSES="$OUT/classes"
-rm -rf "$CLASSES" "$OUT/services-all.txt"; mkdir -p "$CLASSES"; : > "$OUT/services-all.txt"
+LAUNCHER_CLASSES="$OUT/launcher-classes"
+rm -rf "$CLASSES" "$LAUNCHER_CLASSES" "$OUT/services-all.txt"
+mkdir -p "$CLASSES" "$LAUNCHER_CLASSES"
+: > "$OUT/services-all.txt"
+
+# Compile the composition-server entry point separately from the release-gated features. The
+# installed enhanced-server script runs it on a small class path; it proxies the official launcher
+# and provides a stable seam for overlay-owned startup behavior.
+mapfile -t launcher_srcs < <(find "$ROOT/launcher" -name '*.kt')
+[[ ${#launcher_srcs[@]} -gt 0 ]] || { echo "error: no overlay launcher sources found" >&2; exit 1; }
+"$KOTLINC" -cp "$CP" -jvm-target 25 -language-version 2.4 -api-version 2.4 \
+    -nowarn -d "$LAUNCHER_CLASSES" "${launcher_srcs[@]}"
+echo "[build-server]   ✓ overlay server main"
 
 compile_feature() {
   local feat="$1" name; name="$(basename "$feat")"
@@ -76,6 +88,8 @@ echo "[build-server] compiling features against $VERSION ..."
 for feat in "$ROOT"/overlay/features/*/; do compile_feature "$feat"; done
 FEATURE_CLASSES="$(find "$CLASSES" -name '*.class' | wc -l)"
 [[ "$FEATURE_CLASSES" -gt 0 ]] || { echo "error: no feature compiled against $VERSION" >&2; exit 1; }
+cp -r "$LAUNCHER_CLASSES/." "$CLASSES/"
+OVERLAY_CLASSES="$(find "$CLASSES" -name '*.class' | wc -l)"
 
 # --- 1b. package the DISTRIBUTABLE overlay jar (our Apache-2.0 classes only) ------------------
 # This is the only artifact safe to publish: it contains no JetBrains binaries. Users apply it
@@ -99,6 +113,12 @@ cp -r "$DIST_SRC" "$STAGE"
 MODULES_DIR="$STAGE/plugins/kotlin.lsp/lib/modules"
 KOTLIN_JAR="$MODULES_DIR/language-server.api.features.impl.kotlin.jar"
 
+# Install the composition-server jar and launcher. Feature classes are still injected into the
+# Kotlin module below so ServiceLoader sees them in its normal module/class-loader context.
+cp "$OVERLAY_JAR" "$STAGE/lib/$EXT_JAR_NAME"
+cp "$ROOT/scripts/enhanced-server" "$STAGE/bin/enhanced-server"
+chmod +x "$STAGE/bin/enhanced-server"
+
 # --- 3. inject overlay classes + the services entries INTO the kotlin.lsp module jar --------
 # The classes must live in a jar the server's ServiceLoader actually scans; the shipped kotlin
 # module jar (which already declares the service) is the reliable, verified location.
@@ -106,7 +126,7 @@ KOTLIN_JAR="$MODULES_DIR/language-server.api.features.impl.kotlin.jar"
 TMP_SVC="$OUT/services.txt"
 { unzip -p "$KOTLIN_JAR" "$SERVICES"; echo; cat "$OUT/services-all.txt"; } | awk 'NF' > "$TMP_SVC"
 ( cd "$OUT" && mkdir -p "$(dirname "$SERVICES")" && cp "$TMP_SVC" "$SERVICES" && "$JAR" uf "$KOTLIN_JAR" "$SERVICES" )
-echo "[build-server] injected $FEATURE_CLASSES overlay classes + $(grep -c . "$OUT/services-all.txt") extension(s) into $(basename "$KOTLIN_JAR")"
+echo "[build-server] injected $OVERLAY_CLASSES overlay classes + $(grep -c . "$OUT/services-all.txt") extension(s) into $(basename "$KOTLIN_JAR")"
 
 # --- 4. repackage as a tarball ---------------------------------------------------------------
 TARBALL="$OUT/kotlin-server-$VERSION-enhanced.tar.gz"

@@ -18,11 +18,12 @@ PR-then-drop property the cores and unit tests have. A feature with no smoke/ di
 simply has no end-to-end coverage, which is the correct state for one that is
 release-gated or non-additive and therefore cannot be served at all.
 
-Usage: smoke-test.py <server-dir> [--expect type-hierarchy,region-folding,...]
+Usage: smoke-test.py <server-dir> [--expect=type-hierarchy,region-folding,... | --each]
 
 <server-dir> is an unpacked server with the overlay already applied (see
 install-overlay.sh). --expect narrows the run to named features and fails if one of them
-has no check; the default is every feature that ships one.
+has no check; --each runs every discovered check in its own server process and workspace.
+The default runs every feature together in one server to verify that they compose.
 """
 
 import importlib.util
@@ -30,6 +31,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -63,11 +65,24 @@ class Server:
     """Minimal LSP client. The object passed to each feature's check()."""
 
     def __init__(self, server_dir, root):
+        system_path = os.path.join(root, ".server-system")
+        env = os.environ.copy()
+        env.update({
+            "XDG_CACHE_HOME": os.path.join(root, ".xdg", "cache"),
+            "XDG_CONFIG_HOME": os.path.join(root, ".xdg", "config"),
+            "XDG_DATA_HOME": os.path.join(root, ".xdg", "data"),
+        })
+        java_options = env.get("JAVA_TOOL_OPTIONS", "")
+        env["JAVA_TOOL_OPTIONS"] = (
+            java_options + " -Duser.home=" + os.path.join(root, ".user-home")
+        ).strip()
         self.proc = subprocess.Popen(
-            [os.path.join(server_dir, "bin", "intellij-server"), "--stdio"],
+            [os.path.join(server_dir, "bin", "enhanced-server"), "--stdio",
+             "--system-path", system_path],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, cwd=root)
+            stderr=subprocess.PIPE, cwd=root, env=env)
         self.next_id = 0
+        self.capabilities = {}
         self.stderr_tail = []
         self.log_file = None  # the server announces its own log path over window/logMessage
         threading.Thread(target=self._drain_stderr, daemon=True).start()
@@ -124,6 +139,8 @@ class Server:
         deadline = time.time() + TIMEOUT
         while time.time() < deadline:
             msg = self._read()
+            if os.environ.get("SMOKE_TRACE"):
+                print("[smoke] <- %s" % json.dumps(msg, sort_keys=True), file=sys.stderr)
             if msg.get("id") == want and ("result" in msg or "error" in msg):
                 if "error" in msg:
                     raise SmokeError("%s failed: %s" % (want, msg["error"]))
@@ -175,6 +192,7 @@ def main():
     server_dir = os.path.abspath(sys.argv[1])
 
     features = discover_features()
+    run_each = False
     for arg in sys.argv[2:]:
         if arg.startswith("--expect="):
             wanted = [f for f in arg.split("=", 1)[1].split(",") if f]
@@ -183,16 +201,50 @@ def main():
                 sys.exit("no smoke check for: %s (found: %s)"
                          % (", ".join(missing), ", ".join(n for n, _ in features) or "none"))
             features = [(n, m) for n, m in features if n in wanted]
+        elif arg == "--each":
+            run_each = True
+        else:
+            sys.exit("unknown argument: %s\n\n%s" % (arg, __doc__))
     if not features:
         sys.exit("no feature defines overlay/features/<name>/smoke/check.py")
+    if run_each and any(arg.startswith("--expect=") for arg in sys.argv[2:]):
+        sys.exit("--each and --expect cannot be used together")
 
-    launcher = os.path.join(server_dir, "bin", "intellij-server")
+    launcher = os.path.join(server_dir, "bin", "enhanced-server")
     if not os.path.isfile(launcher):
         sys.exit("error: %s is not an unpacked kotlin-lsp server" % server_dir)
 
+    if run_each:
+        failures = []
+        print("[smoke-each] server:   %s" % server_dir, flush=True)
+        print("[smoke-each] features: %s" % ", ".join(name for name, _ in features), flush=True)
+        for name, _ in features:
+            print("\n[smoke-each] === %s ===" % name, flush=True)
+            child_env = os.environ.copy()
+            child_env["SMOKE_WORKDIR"] = tempfile.mkdtemp(
+                prefix="kotlin-lsp-smoke-%s-" % name,
+                dir=child_env.get("SMOKE_WORKDIR"),
+            )
+            result = subprocess.run(
+                [sys.executable, os.path.abspath(__file__), server_dir, "--expect=" + name],
+                env=child_env,
+            )
+            if result.returncode:
+                failures.append(name)
+        if failures:
+            print("\n[smoke-each] FAILED: %s" % ", ".join(failures))
+            return 1
+        print("\n[smoke-each] PASS -- %d feature(s) served independently" % len(features))
+        return 0
+
     # One workspace holding every feature's fixture as its own file, so a single server start
     # covers them all. Each check only ever sees the URI of its own fixture.
-    root = os.path.join(os.environ.get("SMOKE_WORKDIR", "/tmp"), "kotlin-lsp-smoke")
+    workdir = os.environ.get("SMOKE_WORKDIR")
+    root = (
+        os.path.join(workdir, "kotlin-lsp-smoke")
+        if workdir
+        else tempfile.mkdtemp(prefix="kotlin-lsp-smoke-")
+    )
     src = os.path.join(root, "src")
     os.makedirs(src, exist_ok=True)
     with open(os.path.join(root, "workspace.json"), "w") as fh:
@@ -213,8 +265,11 @@ def main():
     started = time.time()
     failures = []
     try:
-        lsp.request("initialize", {
-            "processId": os.getpid(),
+        initialize = lsp.request("initialize", {
+            # The test owns the server process and always shuts it down explicitly. Using null
+            # also avoids coupling the server's parent-process monitor to CI/container PID
+            # namespaces, where the Python PID may not be visible to the bundled JVM.
+            "processId": None,
             "rootUri": root_uri,
             "workspaceFolders": [{"uri": root_uri, "name": "smoke"}],
             "capabilities": {
@@ -228,15 +283,16 @@ def main():
                 "workspace": {"workspaceFolders": True},
             },
         })
+        lsp.capabilities = initialize.get("capabilities", {})
         lsp.notify("initialized", {})
         for name, module in features:
             lsp.notify("textDocument/didOpen", {"textDocument": {
                 "uri": uris[name], "languageId": "kotlin", "version": 1,
                 "text": module.FIXTURE}})
 
-        # Deliberately no assertion on the advertised capabilities: stock 262.8190.0 already
-        # advertises typeHierarchyProvider (and then answers nothing), so capabilities prove
-        # nothing about the overlay. Only the request/response checks below do.
+        # Provider capability flags alone prove nothing: stock 262.8190.0 advertises
+        # typeHierarchyProvider and then answers nothing. Each feature check exercises its real
+        # request; proxy-only repairs can additionally inspect lsp.capabilities.
         print("[smoke] initialized in %.1fs" % (time.time() - started))
 
         for name, module in features:
