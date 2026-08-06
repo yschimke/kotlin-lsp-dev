@@ -6,7 +6,12 @@
 # into your local copy of the server, in place.
 #
 # Usage: install-overlay.sh <path-to-unpacked-kotlin-server> [path-to-overlay.jar]
-#   <server> is the dir containing bin/intellij-server (e.g. kotlin-server-262.8190.0/).
+#   <server> is the dir containing bin/intellij-server (e.g. kotlin-server-263.2689.0/).
+#
+# Set ALLOW_VERSION_MISMATCH=1 to install onto a server whose build differs from the pinned one.
+# The overlay compiles against a specific release's closed API; on a different build the classes
+# may fail to link at request time -- which surfaces as a feature silently answering nothing
+# rather than as an install error, so the check is on by default.
 
 set -euo pipefail
 
@@ -25,6 +30,19 @@ JAR="${JAVA_HOME:-/usr/lib/jvm/java-25-openjdk}/bin/jar"; [[ -x "$JAR" ]] || JAR
 
 KOTLIN_JAR="$SERVER/plugins/kotlin.lsp/lib/modules/language-server.api.features.impl.kotlin.jar"
 [[ -f "$KOTLIN_JAR" ]] || { echo "error: kotlin module jar not found in $SERVER" >&2; exit 1; }
+
+# build.txt carries the build the server was cut from, prefixed by product code (LS-, ILS-, ...).
+TARGET_BUILD="$(sed -E 's/^[A-Za-z]+-//' "$SERVER/build.txt" 2>/dev/null | tr -d '[:space:]')"
+if [[ -n "$TARGET_BUILD" && "$TARGET_BUILD" != "$VERSION" ]]; then
+  if [[ "${ALLOW_VERSION_MISMATCH:-0}" == "1" ]]; then
+    echo "warning: overlay built for $VERSION, server is $TARGET_BUILD -- installing anyway" >&2
+  else
+    echo "error: overlay was built for $VERSION but $SERVER is $TARGET_BUILD." >&2
+    echo "       Set kotlinLspVersion=$TARGET_BUILD in dist.properties and rerun build-server.sh," >&2
+    echo "       or re-run with ALLOW_VERSION_MISMATCH=1 if you know the API is unchanged." >&2
+    exit 1
+  fi
+fi
 
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 ( cd "$WORK" && "$JAR" xf "$OVERLAY_JAR" )

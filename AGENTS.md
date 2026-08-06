@@ -10,7 +10,7 @@ release and injects them into the shipped server through the platform's own
 `LanguageServerExtension` ServiceLoader. No forking, no patching JetBrains jars, no bytecode
 manipulation.
 
-The pinned release lives in [dist.properties](dist.properties) (currently `262.8190.0`). Read
+The pinned release lives in [dist.properties](dist.properties) (currently `263.2689.0`). Read
 [README.md](README.md) before starting anything.
 
 ## The one rule that governs every feature
@@ -21,11 +21,18 @@ The pinned release lives in [dist.properties](dist.properties) (currently `262.8
 Getting this wrong wastes an entire feature's work, so check the table below *first* — before
 writing any code, and before believing a feature is "just a provider away".
 
-### Dispatch table for `262.8190.0`
+### Dispatch table for `263.2689.0`
 
-Derived by disassembling `build/dist/kotlin-server-262.8190.0/lib/product.jar`. The shipped
-bytecode matches `upstream/api.features/src/**` exactly, so the submodule sources are a
-trustworthy reference. Re-derive this table whenever the pinned release changes.
+Derived by disassembling `lib/product.jar` (262) / `lib/language-server.main.jar` (263) and
+cross-checking against `upstream/api.features/src/**`. Re-derive whenever the pinned release
+changes.
+
+**Start with `scripts/probe-capabilities.py <server-dir>`.** It prints the `initialize` result a
+server actually returns, which is the real gate on what any conformant client will ever request.
+That is both faster and more trustworthy than reading the launcher: the closed classes are
+re-obfuscated on every build, so a bytecode diff between two releases is mostly renamed private
+methods. The capability probe is how `codeLens` was found to be newly available in 263 after two
+releases of identical LSP surface.
 
 | Dispatch | Requests | What it means for an overlay |
 |---|---|---|
@@ -33,7 +40,8 @@ trustworthy reference. Re-derive this table whenever the pinned release changes.
 | **Empty slot** | `typeHierarchy` | ✅ No built-in Kotlin provider, so an added one wins outright. |
 | **First non-null wins** | `hover`, `rename`, `callHierarchy/prepare` | ⚠️ A built-in already occupies the slot and ServiceLoader order is not controllable — there is no priority field. At best your provider fires only when the built-in returns null. Do not rely on it. |
 | **Adding a provider BREAKS the request** | `signatureHelp`, `formatting`, `rangeFormatting`, `completion` | ❌ **Never add these.** See below. |
-| **No handler registered at all** | `documentHighlight`, `selectionRange`, `documentLink`, `declaration`, `onTypeFormatting`, `linkedEditingRange`, `documentColor`, `inlineValue`, `moniker`, `prepareRename`, `codeLens` | ❌ Unreachable at any layer. The server registers only 29 request handlers and these are not among them. |
+| **Empty slot** | `codeLens` | ✅ New in `263.2689.0` — advertised and routed, with only the DAP run-main lens built in. This is what un-gated `overlay/features/code-vision`. |
+| **No capability advertised** | `documentHighlight`, `selectionRange`, `documentLink`, `declaration`, `onTypeFormatting`, `linkedEditingRange`, `documentColor`, `inlineValue`, `moniker`, `prepareRename` | ❌ Unreachable in-process. Absent from the `initialize` result on 263.2689.0 (verified with `probe-capabilities.py`), so no conformant client sends them. A capability the server *does* implement but fails to advertise can be repaired by the composition server — that is exactly the range-formatting case. One it does not implement cannot. |
 
 ### Never add a provider for these
 
@@ -96,9 +104,10 @@ feature whose LSP API is absent from the pinned release is silently skipped with
 ### A feature is not done until it is verified live
 
 Unit tests alone are insufficient — they exercise `core/`, which by design cannot catch a
-registration, dispatch, or capability problem. Verify over stdio against a real patched server
-(`bin/intellij-server --stdio`) and record the result in the feature's README, as the existing
-features do. Most of the ways an overlay feature fails are invisible to unit tests:
+registration, dispatch, or capability problem. Add a `smoke/check.py` and verify against a real
+patched server (`scripts/smoke-test.py <server-dir>`), then record the result in the feature's
+README, as the existing features do. Run `--each` to prove the feature stands alone and
+`--socket` to prove it survives the TCP transport VS Code uses. Most of the ways an overlay feature fails are invisible to unit tests:
 
 - The provider never registers (missing/malformed services file).
 - The `uniqueId` collides and the server fails to start.

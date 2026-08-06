@@ -1,9 +1,11 @@
 # Code Vision code lenses (`textDocument/codeLens`)
 
-**Status:** PR-ready + unit-tested, but **not runnable on the current pinned release**
-(`262.8190.0`) — the `LSCodeLensProvider` API postdates it. `build-server.sh` skips this
-feature automatically and it will activate once a release ships the codeLens API. Submit
-upstream as a PR meanwhile.
+**Status:** runnable and live-verified on the pinned `263.2689.0` release.
+
+This feature was release-gated for its whole life until now: releases through `262.9593.0`
+neither advertised `codeLensProvider` nor shipped `LSCodeLensProvider`, so `build-server.sh`
+skipped it automatically. `263.2689.0` ships both, and the feature activated with no code
+change — which is the release-gating mechanism working as designed.
 _Tracking: (add the upstream PR/issue URL here once opened)_
 
 ## What this adds
@@ -23,6 +25,14 @@ DAP configuration); these add usage/inheritance/testing affordances:
 |---|---|---|
 | `core/…/codeVision/KotlinCodeVisionComputation.kt` | pure-PSI cores (reference count, implementation/override count, `@Test` detection) | `test/CodeVisionTest.kt` |
 | `ext/…` | `LSCodeLensProvider` adapters | `scripts/compile-check.sh` + boots via `scripts/build-server.sh` |
+| `smoke/check.py` | live `textDocument/codeLens` request against a real patched server | `scripts/smoke-test.py` |
+
+## Live verification
+
+`smoke/check.py` asserts the server advertises `codeLensProvider`, then sends a real
+`textDocument/codeLens` request and requires a usage lens, an implementation lens and a run-test
+lens. It also pins the count: the fixture's `Greeter` has exactly two implementors, so a
+`2 implementations` lens must come back — a lens with the wrong number fails rather than passes.
 
 ## Upstream target paths
 

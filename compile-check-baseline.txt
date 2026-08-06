@@ -1,20 +1,27 @@
-# Files that fail to type-check against the pinned release purely because the upstream
-# checkout runs ahead of it.
+# Files that fail to type-check against the pinned release purely because the upstream source
+# checkout runs behind it.
 #
-# This list is currently EMPTY, and keeping it that way is the point.
+# Shrinking this list is the point. Two things keep it small:
 #
-# It used to hold 18 files. Two things emptied it:
-#
-#   1. The submodule is pinned at the release tag itself (kotlin-lsp/v<version>), not at a
-#      later master commit. Sources and jars are then the same build, so there is no skew to
-#      baseline. Always re-pin to the tag when bumping dist.properties.
-#   2. compile-check.sh applies the kotlinx-serialization compiler plugin and puts the real
+#   1. compile-check.sh applies the kotlinx-serialization compiler plugin and puts the real
 #      kotlinx-serialization-core jar ahead of the manifest-less copy embedded in
 #      intellij.libraries.ktor.utils.jar. Without either, every `@Serializable` file reports
-#      bogus errors that look exactly like drift.
+#      bogus errors that look exactly like drift. That alone accounted for 14 of the original 18.
+#   2. The submodule is pinned as close to the release as the public mirror allows.
 #
-# So a non-empty result here now means something real: either the pin drifted off the release
-# tag, or the release genuinely changed an API the checkout uses. Investigate before appending
-# -- an entry added to silence a failure hides exactly the signal this check exists to give.
+# The remaining four are real skew and cannot currently be removed. The pinned distribution is
+# 263.2689.0, published on the CDN and shipped in VS Code extension 0.0.8, but the public
+# Kotlin/kotlin-lsp mirror has no 263 tag or branch -- its newest release tag is
+# kotlin-lsp/v262.9593.0, which is where the submodule sits. These four files use closed APIs
+# that moved between the two (workspace-model snapshot accessors, the completion session
+# entity, LSConfigurationEntry). They will clear on their own once a 263 source tag appears.
 #
-# Captured against kotlin-lsp @ kotlin-lsp/v262.9593.0, dist 262.9593.0.
+# Anything NOT in this list failing is a real signal: investigate before appending, because an
+# entry added to silence a failure hides exactly what this check exists to report.
+#
+# Captured against kotlin-lsp @ kotlin-lsp/v262.9593.0, dist 263.2689.0.
+
+api.features/src/com/jetbrains/ls/api/features/LSConfigurationEntry.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/completion/LSCompletionProviderHelper.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/fileTemplates/LSInterpolateFileTemplateCommandDescriptorProvider.kt
+features-impl/common/src/com/jetbrains/ls/api/features/impl/common/rename/LSRenameProviderBase.kt

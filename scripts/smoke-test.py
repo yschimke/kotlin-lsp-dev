@@ -18,17 +18,20 @@ PR-then-drop property the cores and unit tests have. A feature with no smoke/ di
 simply has no end-to-end coverage, which is the correct state for one that is
 release-gated or non-additive and therefore cannot be served at all.
 
-Usage: smoke-test.py <server-dir> [--expect=type-hierarchy,region-folding,... | --each]
+Usage: smoke-test.py <server-dir> [--expect=type-hierarchy,... | --each] [--socket]
 
 <server-dir> is an unpacked server with the overlay already applied (see
 install-overlay.sh). --expect narrows the run to named features and fails if one of them
 has no check; --each runs every discovered check in its own server process and workspace.
 The default runs every feature together in one server to verify that they compose.
+--socket drives the same checks over the TCP transport the VS Code extension uses, rather
+than over stdio.
 """
 
 import importlib.util
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -39,6 +42,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FEATURES_DIR = os.path.join(ROOT, "overlay", "features")
 
 TIMEOUT = int(os.environ.get("SMOKE_TIMEOUT", "300"))
+# Socket mode has to wait for the child server to boot before the port is announced.
+PORT_ANNOUNCE_TIMEOUT = int(os.environ.get("SMOKE_PORT_TIMEOUT", "180"))
 
 # A module definition for the server's JSON workspace importer (upstream's JsonWorkspaceImporter
 # picks up `workspace.json` in the project root). This is what puts the fixtures into a real
@@ -64,7 +69,7 @@ class SmokeError(Exception):
 class Server:
     """Minimal LSP client. The object passed to each feature's check()."""
 
-    def __init__(self, server_dir, root):
+    def __init__(self, server_dir, root, transport="stdio"):
         system_path = os.path.join(root, ".server-system")
         env = os.environ.copy()
         env.update({
@@ -76,16 +81,43 @@ class Server:
         env["JAVA_TOOL_OPTIONS"] = (
             java_options + " -Duser.home=" + os.path.join(root, ".user-home")
         ).strip()
+        launcher = os.path.join(server_dir, "bin", "enhanced-server")
+        # --socket 0 binds an ephemeral port and announces it the way the shipped launcher does;
+        # this is the transport the VS Code extension uses, so exercising it end-to-end is what
+        # proves the composition server is a drop-in rather than a stdio-only convenience.
+        transport_args = ["--stdio"] if transport == "stdio" else ["--socket", "0"]
         self.proc = subprocess.Popen(
-            [os.path.join(server_dir, "bin", "enhanced-server"), "--stdio",
-             "--system-path", system_path],
+            [launcher] + transport_args + ["--system-path", system_path],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, cwd=root, env=env)
         self.next_id = 0
         self.capabilities = {}
         self.stderr_tail = []
         self.log_file = None  # the server announces its own log path over window/logMessage
+        self.socket = None
         threading.Thread(target=self._drain_stderr, daemon=True).start()
+
+        if transport == "stdio":
+            self._in, self._out = self.proc.stdout, self.proc.stdin
+        else:
+            self._in = self._out = self._connect(self._announced_port())
+
+    def _announced_port(self):
+        deadline = time.time() + PORT_ANNOUNCE_TIMEOUT
+        while time.time() < deadline:
+            line = self.proc.stdout.readline()
+            if not line:
+                raise SmokeError("server exited before announcing a port\n"
+                                 + "\n".join(self.stderr_tail[-30:]))
+            text = line.decode("utf8", "replace").strip()
+            if "Server is listening on " in text:
+                return int(text.rsplit(":", 1)[1])
+        raise SmokeError("no port announcement within %ds" % PORT_ANNOUNCE_TIMEOUT)
+
+    def _connect(self, port):
+        self.socket = socket.create_connection(("127.0.0.1", port), timeout=TIMEOUT)
+        self.socket.settimeout(TIMEOUT)
+        return self.socket.makefile("rwb")
 
     def _drain_stderr(self):
         for line in self.proc.stderr:
@@ -94,8 +126,8 @@ class Server:
 
     def _write(self, msg):
         body = json.dumps(msg).encode()
-        self.proc.stdin.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
-        self.proc.stdin.flush()
+        self._out.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
+        self._out.flush()
 
     def notify(self, method, params):
         self._write({"jsonrpc": "2.0", "method": method, "params": params})
@@ -118,9 +150,10 @@ class Server:
     def _read(self):
         headers = {}
         while True:
-            line = self.proc.stdout.readline()
+            line = self._in.readline()
             if not line:
-                raise SmokeError("server closed stdout\n" + "\n".join(self.stderr_tail[-30:]))
+                raise SmokeError("server closed the connection\n"
+                                 + "\n".join(self.stderr_tail[-30:]))
             line = line.decode().strip()
             if not line:
                 break
@@ -129,7 +162,7 @@ class Server:
         n = int(headers["content-length"])
         buf = b""
         while len(buf) < n:
-            chunk = self.proc.stdout.read(n - len(buf))
+            chunk = self._in.read(n - len(buf))
             if not chunk:
                 raise SmokeError("truncated message from server")
             buf += chunk
@@ -193,6 +226,7 @@ def main():
 
     features = discover_features()
     run_each = False
+    transport = "stdio"
     for arg in sys.argv[2:]:
         if arg.startswith("--expect="):
             wanted = [f for f in arg.split("=", 1)[1].split(",") if f]
@@ -203,6 +237,8 @@ def main():
             features = [(n, m) for n, m in features if n in wanted]
         elif arg == "--each":
             run_each = True
+        elif arg == "--socket":
+            transport = "socket"
         else:
             sys.exit("unknown argument: %s\n\n%s" % (arg, __doc__))
     if not features:
@@ -226,7 +262,8 @@ def main():
                 dir=child_env.get("SMOKE_WORKDIR"),
             )
             result = subprocess.run(
-                [sys.executable, os.path.abspath(__file__), server_dir, "--expect=" + name],
+                [sys.executable, os.path.abspath(__file__), server_dir, "--expect=" + name]
+                + (["--socket"] if transport == "socket" else []),
                 env=child_env,
             )
             if result.returncode:
@@ -261,7 +298,7 @@ def main():
     print("[smoke] features:  %s" % ", ".join(name for name, _ in features))
 
     root_uri = "file://" + root
-    lsp = Server(server_dir, root)
+    lsp = Server(server_dir, root, transport)
     started = time.time()
     failures = []
     try:

@@ -9,6 +9,8 @@ import java.io.ByteArrayOutputStream
 import java.io.EOFException
 import java.io.InputStream
 import java.io.OutputStream
+import java.net.InetAddress
+import java.net.ServerSocket
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -18,29 +20,100 @@ import kotlin.concurrent.thread
 /**
  * Composition-server entry point for a kotlin-lsp distribution enhanced by kotlin-lsp-dev.
  *
- * In stdio mode this process owns the client connection and starts the shipped server as a child.
- * Messages pass through unchanged except for explicit overlay fixes. The installed
- * `bin/enhanced-server` script supplies the server home and a small runtime class path.
+ * This process owns the client connection and starts the shipped server as a child over stdio.
+ * Messages pass through unchanged except for explicit overlay repairs -- operations that cannot
+ * safely compose as in-process providers because the shipped dispatcher admits only one provider,
+ * or because the capability is never advertised so no conformant client would send the request.
+ * Additive features still run inside the child through the normal extension API.
+ *
+ * Two transports, matching the two ways the official VS Code extension starts a server:
+ *
+ *   --stdio            own this process's stdin/stdout (most editors, and our smoke harness)
+ *   --socket <port>    listen on 127.0.0.1:<port> and serve the client that connects
+ *
+ * `--socket 0` binds an ephemeral port and announces it on stdout in the launcher's own format,
+ * so this is a drop-in for `bin/intellij-server` wherever that is spawned. A fixed port is what
+ * the extension's `intellij.dev.serverPort` setting dials.
+ *
+ * The installed `bin/enhanced-server` script supplies the server home and a small runtime class path.
  */
 object KotlinLspServer {
     private const val RANGE_FORMATTING_CAPABILITY = "documentRangeFormattingProvider"
+    private const val LOOPBACK = "127.0.0.1"
 
     @JvmStatic
     fun main(args: Array<String>) {
         val launcher = serverHome().resolve("bin/intellij-server")
         require(Files.isRegularFile(launcher)) { "kotlin-lsp launcher not found: $launcher" }
-        if ("--stdio" in args) runProxy(launcher, args) else runPassThrough(launcher, args)
+
+        // Everything except our own transport selection is forwarded to the child untouched --
+        // notably --system-path, which the extension uses to give each workspace its own caches.
+        val childArgs = passThroughArgs(args)
+        when (val transport = transportOf(args)) {
+            is Transport.Stdio -> serve(System.`in`, System.out, launcher, childArgs)
+            is Transport.Socket -> serveSocket(transport.port, launcher, childArgs)
+        }
     }
 
-    private fun runProxy(launcher: Path, args: Array<String>) {
-        val child = ProcessBuilder(listOf(launcher.toString()) + args)
+    private sealed interface Transport {
+        object Stdio : Transport
+        data class Socket(val port: Int) : Transport
+    }
+
+    private fun transportOf(args: Array<String>): Transport {
+        args.forEachIndexed { index, arg ->
+            when (arg) {
+                "--stdio" -> return Transport.Stdio
+                // --port is our own spelling; --socket is the launcher's. Accept both.
+                "--socket", "--port" -> {
+                    val value = args.getOrNull(index + 1)
+                        ?: error("$arg requires a port number (0 for an ephemeral port)")
+                    val port = value.toIntOrNull()
+                        ?: error("$arg expects a port number, got: $value")
+                    require(port in 0..65535) { "port out of range: $port" }
+                    return Transport.Socket(port)
+                }
+            }
+        }
+        error("no transport selected; pass --stdio or --socket <port>")
+    }
+
+    private fun passThroughArgs(args: Array<String>): List<String> {
+        val kept = mutableListOf<String>()
+        var index = 0
+        while (index < args.size) {
+            when (args[index]) {
+                "--stdio" -> index++
+                "--socket", "--port" -> index += 2
+                else -> kept += args[index++]
+            }
+        }
+        return kept
+    }
+
+    private fun serveSocket(port: Int, launcher: Path, childArgs: List<String>) {
+        ServerSocket(port, 1, InetAddress.getByName(LOOPBACK)).use { server ->
+            // Same wording the shipped launcher uses, because the VS Code extension scrapes this
+            // line off stdout to learn which port to dial.
+            println("Server is listening on $LOOPBACK:${server.localPort}")
+            System.out.flush()
+            server.accept().use { socket ->
+                socket.tcpNoDelay = true
+                serve(socket.getInputStream(), socket.getOutputStream(), launcher, childArgs)
+            }
+        }
+    }
+
+    /** Run the shipped server as a stdio child and pump frames between it and [input]/[output]. */
+    private fun serve(input: InputStream, output: OutputStream, launcher: Path, childArgs: List<String>) {
+        val child = ProcessBuilder(listOf(launcher.toString(), "--stdio") + childArgs)
             .redirectError(ProcessBuilder.Redirect.INHERIT)
             .start()
         val initializeId = AtomicReference<JsonElement?>()
 
         thread(name = "kotlin-lsp-dev-client-to-child", isDaemon = true) {
             child.outputStream.use { childInput ->
-                forwardFrames(System.`in`, childInput) { message ->
+                forwardFrames(input, childInput) { message ->
                     if (message.get("method")?.asString == "initialize") {
                         initializeId.set(message.get("id")?.deepCopy())
                     }
@@ -50,7 +123,7 @@ object KotlinLspServer {
         }
         try {
             child.inputStream.use { childOutput ->
-                forwardFrames(childOutput, System.out) { message ->
+                forwardFrames(childOutput, output) { message ->
                     patchInitializeResponse(message, initializeId.get())
                 }
             }
@@ -58,11 +131,6 @@ object KotlinLspServer {
         } finally {
             child.destroy()
         }
-    }
-
-    private fun runPassThrough(launcher: Path, args: Array<String>) {
-        val exitCode = ProcessBuilder(listOf(launcher.toString()) + args).inheritIO().start().waitFor()
-        check(exitCode == 0) { "kotlin-lsp child exited with status $exitCode" }
     }
 
     /** Forward complete LSP frames, re-encoding only a message changed by [transform]. */

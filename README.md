@@ -42,7 +42,9 @@ scripts/
   build-server.sh    compile features vs the release → overlay jar (+ local enhanced tarball)
   install-overlay.sh apply the overlay jar and composition-server launcher
   compile-check.sh   type-check the pinned upstream sources vs the release (drift detection)
-  smoke-test.py      drive a patched server over stdio and assert the features answer
+  smoke-test.py      drive a patched server (stdio or TCP) and assert the features answer
+  probe-capabilities.py print the initialize result a server advertises
+  install.sh         one command: fetch + build + apply + report editor config
 ```
 
 ## Feature lifecycle (permanent overlay, PR-ready shape)
@@ -65,7 +67,7 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 
 ## Current features
 
-| Feature | On `262.8190.0` | Verified |
+| Feature | On `263.2689.0` | Verified |
 |---|---|---|
 | **Type hierarchy** (`textDocument/typeHierarchy`) — new | ✅ runnable | unit tests + CI smoke test (prepare + supertypes/subtypes) |
 | **Region folding** (`//region`…`//endregion`) — enhancement | ✅ runnable | unit tests + CI smoke test (folds merge with built-in) |
@@ -74,16 +76,21 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Unused-import diagnostics** — enhancement ([#201](https://github.com/Kotlin/kotlin-lsp/issues/201)) | ✅ runnable | unit tests + CI smoke test (warning + `Unnecessary` tag) |
 | **Workspace commands** — doctor, stack traces, dependency search, FQN | ✅ runnable | unit tests + CI smoke test (all four commands) |
 | **Implement/override members** — declaration-generation code actions | ✅ runnable | unit tests + CI smoke test (direct implementation edit) |
-| **Code vision** code lenses (usages / implementations / run-test) — new | ⊘ release-gated — `codeLens` API postdates the release | unit tests + PR-ready adapter |
+| **Code vision** code lenses (usages / implementations / run-test) — new | ✅ runnable | unit tests + CI smoke test (usage / implementation / run-test lenses, exact counts) |
 | **Closing-brace inlay hints** — enhancement | ✅ runnable | unit tests + CI smoke test (function + class hints, merged with built-ins) |
 | **Range formatting capability** (`textDocument/rangeFormatting`) — repair | ✅ runnable via composition server | CI smoke test (advertised capability + real formatting edits) |
 
-**Why some features aren't runnable here** — a feature's LSP API may **postdate** the newest
-public release (there is no newer server to pin), or the shipped request path may not safely
-compose another provider. Those features are carried unit-tested + PR-ready and activate once the
-constraint lifts. Some request types also dispatch to a **single** provider rather than merging,
-so they cannot be enhanced by adding a provider; the dispatch table in `AGENTS.md` records the
-verified behavior. Inlay hints are additive on the pinned release.
+**Every feature is runnable as of `263.2689.0`.** Code vision was release-gated for its whole
+life — releases through `262.9593.0` neither advertised `codeLensProvider` nor shipped
+`LSCodeLensProvider` — and activated on this release with no code change, which is the
+release-gating mechanism working as intended.
+
+Features can still become un-runnable in either direction. A feature's LSP API may **postdate**
+the pinned release, in which case `build-server.sh` skips it and it stays unit-tested and
+PR-ready until a release ships the API. Separately, some request types dispatch to a **single**
+provider rather than merging, so they cannot be enhanced by adding a provider at all; the
+dispatch table in `AGENTS.md` records the verified behavior per release. Those are the operations
+the composition server exists for.
 
 ## Overlay platform guardrails
 
@@ -96,8 +103,11 @@ handlers with `upstream/api.features/src`. When the pinned version changes, re-r
    whether it visits all matching providers, chooses one, or rejects multiple providers.
 3. Compare the bytecode with the pinned `upstream/api.features/src` sources and update the table
    in `AGENTS.md`; do not assume behavior from another release.
-4. Build, install, and exercise every runnable feature over stdio. Compilation alone does not
+4. Build, install, and exercise every runnable feature end-to-end. Compilation alone does not
    prove registration, capability advertisement, or result routing.
+5. `scripts/probe-capabilities.py` prints the `initialize` result directly and is the fastest
+   way to see what a new release un-gates — the closed classes are re-obfuscated on every
+   build, so diffing their bytecode mostly reports renamed private methods.
 
 Some combinations fail loudly rather than degrading. Never add completion, signature-help, or
 formatting/range-formatting providers: built-ins already occupy those paths, and another provider
@@ -108,23 +118,80 @@ unique `uniqueId` for every `LSUniqueConfigurationEntry`. An extension must not 
 `supportedLanguages`, because adding it to `LSConfigurationPiece.languages` duplicates the
 built-in language and aborts startup.
 
-## Build & apply
+## Install
+
+One command takes a clean checkout to a runnable server. It downloads the pinned official
+release, builds the overlay against it, applies it, and installs `bin/enhanced-server`:
 
 ```sh
 git clone --recurse-submodules https://github.com/yschimke/kotlin-lsp-dev
 cd kotlin-lsp-dev
 
-./gradlew test              # unit-test the feature cores (downloads an IDE the first time)
-./scripts/build-server.sh   # compile features vs the pinned release → build/server/language-server.overlay-<v>.jar
-
-# download the official server (see github.com/Kotlin/kotlin-lsp releases), unpack it, then:
-./scripts/install-overlay.sh /path/to/kotlin-server-<v>
-
-./scripts/smoke-test.py /path/to/kotlin-server-<v>   # end-to-end: does the patched server answer?
+./scripts/install.sh                     # → ~/.local/share/kotlin-lsp-enhanced
+./scripts/install.sh --to /opt/kotlin-lsp
+./scripts/install.sh --vscode            # overlay the bundled server of the installed extension
 ```
 
-Point your editor at the composition server (`bin/enhanced-server --stdio`). The stock
-`bin/intellij-server` remains available, but bypasses proxy-only capability repairs.
+The standalone install is self-contained: it restores the release's bundled JBR 25, so the
+server needs no JDK on `PATH`. Verify it end-to-end with:
+
+```sh
+./scripts/smoke-test.py ~/.local/share/kotlin-lsp-enhanced
+```
+
+### Connecting an editor
+
+The server speaks both transports the official VS Code extension uses:
+
+```sh
+bin/enhanced-server --stdio          # any LSP client
+bin/enhanced-server --socket 9999    # listen on a TCP port
+bin/enhanced-server --socket 0       # ephemeral port, announced on stdout like the stock launcher
+```
+
+**VS Code**, with the official *Kotlin by JetBrains* extension installed — start the server, then
+point the extension at it instead of its own bundled copy:
+
+```jsonc
+// settings.json
+{ "intellij.dev.serverPort": 9999 }
+```
+
+```sh
+~/.local/share/kotlin-lsp-enhanced/bin/enhanced-server --socket 9999
+```
+
+This is the path that gets *everything*: the added in-process features and the proxy repairs.
+`--vscode` is the lower-friction alternative — it overlays the extension's own bundled server in
+place, so no port or settings change is needed, but the extension still launches
+`bin/intellij-server` directly and therefore misses the repairs that need the outer boundary
+(today: Format Selection).
+
+**Any other client** — run `bin/enhanced-server --stdio` as the server command. The stock
+`bin/intellij-server` also remains untouched and usable, minus the repairs.
+
+### Building the pieces separately
+
+```sh
+./gradlew test              # unit-test the feature cores (downloads an IDE the first time)
+./scripts/build-server.sh   # compile features vs the pinned release → build/server/language-server.overlay-<v>.jar
+./scripts/install-overlay.sh /path/to/kotlin-server-<v>   # apply to a server you unpacked yourself
+```
+
+`install-overlay.sh` refuses a server whose `build.txt` differs from the pinned version, because
+the overlay compiles against one release's closed API and a mismatch surfaces as a feature
+silently answering nothing rather than as an install error. `ALLOW_VERSION_MISMATCH=1` overrides.
+
+### Staying on the newest server
+
+```sh
+./scripts/fetch-dist.sh --check
+```
+
+Build numbers are not enumerable and the CDN has no index, so probing invented numbers finds
+nothing — that is how this repo once sat on `262.8190.0` while `263.2689.0` was already
+published. `--check` reads the build out of any installed Marketplace extension (the earliest
+reliable signal), then reports the newest extension and GitHub release for comparison.
 
 ## Testing
 
@@ -139,7 +206,7 @@ different things and none substitutes for another:
 
 The smoke test is the end-to-end one: it builds the overlay jar, applies it to a server copy the
 way a user would, drives it over stdio, and asserts the responses. Its assertions are written to
-fail against an **un-patched** server — e.g. stock 262.8190.0 already returns a `comment`-kind
+fail against an **un-patched** server — e.g. the stock server already returns a `comment`-kind
 fold over the same lines as our `//region` block, so the check requires the `region` kind
 specifically. Run it against a stock server whenever you add or change a check:
 
@@ -152,9 +219,12 @@ specifically. Run it against a stock server whenever you add or change a check:
 workspace, starts the server once, and runs each check against its own file. `--expect=<names>`
 narrows the run.
 
-CI runs the suite twice. The default combined run proves all extensions and proxy repairs coexist
-in one server. `--each` starts a fresh server and workspace for every feature, proving that each
-check passes independently and making registration or order-dependent failures easier to isolate.
+CI runs the suite three ways. The default combined run proves all extensions and proxy repairs
+coexist in one server. `--each` starts a fresh server and workspace for every feature, proving
+each check passes independently and making registration or order-dependent failures easier to
+isolate. `--socket` runs the same checks over the TCP transport the VS Code extension dials,
+proving the composition server is a drop-in for the stock launcher rather than a stdio-only
+convenience.
 
 The workspace carries a `workspace.json` for the server's JSON workspace importer. That module
 definition is load-bearing: without it the files are opened outside any module and index-backed
@@ -164,6 +234,7 @@ Maven fixtures would work too, at the cost of a build-tool download.
 Features that are release-gated or non-additive (see the table above) ship no `smoke/` directory —
 the server cannot serve them, so there is nothing to assert. Presence of `smoke/` is therefore the
 signal that a feature is actually served; those features rely on their unit tests until they land.
+As of `263.2689.0` every feature has one.
 
 ## Requirements
 

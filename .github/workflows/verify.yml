@@ -127,3 +127,8 @@ jobs:
 
       - name: Run each feature in an isolated server
         run: ./scripts/smoke-test.py build/smoke-server --each
+
+      # The VS Code extension dials a TCP port rather than speaking stdio, so the transport the
+      # composition server is actually used over needs its own end-to-end run.
+      - name: Run the suite over the TCP transport
+        run: ./scripts/smoke-test.py build/smoke-server --socket
