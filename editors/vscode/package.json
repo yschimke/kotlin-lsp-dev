@@ -2,7 +2,7 @@
   "name": "kotlin-lsp-dev",
   "displayName": "Kotlin (kotlin-lsp-dev)",
   "description": "Client for the enhanced Kotlin language server built by kotlin-lsp-dev.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "publisher": "kotlin-lsp-dev",
   "repository": {
@@ -13,22 +13,125 @@
     "vscode": "^1.90.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Debuggers"
   ],
   "activationEvents": [
-    "onLanguage:kotlin"
+    "onLanguage:kotlin",
+    "workspaceContains:build.gradle",
+    "workspaceContains:build.gradle.kts",
+    "workspaceContains:settings.gradle",
+    "workspaceContains:settings.gradle.kts",
+    "workspaceContains:pom.xml",
+    "workspaceContains:workspace.json",
+    "workspaceContains:*/build.gradle",
+    "workspaceContains:*/build.gradle.kts",
+    "workspaceContains:*/settings.gradle",
+    "workspaceContains:*/settings.gradle.kts",
+    "workspaceContains:*/pom.xml"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
       {
         "id": "kotlin",
-        "aliases": [
-          "Kotlin"
+        "aliases": ["Kotlin", "kotlin"],
+        "extensions": [".kt", ".kts"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configurationDefaults": {
+      "[kotlin]": {
+        "editor.autoIndent": "none",
+        "editor.formatOnType": false
+      }
+    },
+    "breakpoints": [
+      {
+        "language": "kotlin"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "kotlinLspDev",
+        "label": "Kotlin (kotlin-lsp-dev)",
+        "languages": ["kotlin"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["mainClass"],
+            "properties": {
+              "mainClass": {
+                "type": "string",
+                "description": "Fully-qualified name of the main class to run."
+              },
+              "file": {
+                "type": "string",
+                "description": "Path to the source file declaring the main class. Disambiguates when the name is declared in more than one file. Supports ${file}."
+              },
+              "args": {
+                "type": "array",
+                "items": { "type": "string" },
+                "default": [],
+                "description": "Program arguments."
+              },
+              "jvmArgs": {
+                "type": "array",
+                "items": { "type": "string" },
+                "default": [],
+                "description": "JVM arguments."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory.",
+                "default": "${workspaceFolder}"
+              },
+              "env": {
+                "type": "object",
+                "default": {},
+                "description": "Environment variables."
+              }
+            }
+          },
+          "attach": {
+            "required": ["hostName", "port"],
+            "properties": {
+              "hostName": { "type": "string", "default": "localhost" },
+              "port": { "type": "number" }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "kotlinLspDev",
+            "request": "launch",
+            "name": "Kotlin: Run main class",
+            "mainClass": "",
+            "file": "${file}"
+          }
         ],
-        "extensions": [
-          ".kt",
-          ".kts"
+        "configurationSnippets": [
+          {
+            "label": "Kotlin: Run main class",
+            "description": "Launch a Kotlin main function via the language server's debugger",
+            "body": {
+              "type": "kotlinLspDev",
+              "request": "launch",
+              "name": "Kotlin: Run main class",
+              "mainClass": "",
+              "file": "^\"\\${file}\""
+            }
+          },
+          {
+            "label": "Kotlin: Attach to JVM",
+            "description": "Attach to a running JVM",
+            "body": {
+              "type": "kotlinLspDev",
+              "request": "attach",
+              "name": "Kotlin: Attach",
+              "hostName": "localhost",
+              "port": 5005
+            }
+          }
         ]
       }
     ],
@@ -38,62 +141,69 @@
         "kotlinLspDev.serverPath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Directory of a standalone server installed by `scripts/install.sh`. Empty means `~/.local/share/kotlin-lsp-enhanced`. The server is expected to be self-contained \u2014 this extension neither downloads a distribution nor looks for a JDK."
+          "markdownDescription": "Directory of a standalone server installed by `scripts/install.sh`. Empty means `~/.local/share/kotlin-lsp-enhanced`. The server is expected to be self-contained — this extension neither downloads a distribution nor looks for a JDK."
         },
         "kotlinLspDev.serverPort": {
           "type": "number",
           "default": 0,
           "markdownDescription": "Attach to a server already listening on `127.0.0.1:<port>` instead of starting one. `0` (default) starts the server over stdio and ties its lifetime to the editor.\n\nStart one yourself with `bin/enhanced-server --socket 9999`. Attaching keeps its log in your own terminal and keeps the JVM warm across editor reloads, at the cost of having to start it."
         },
+        "kotlinLspDev.isolateIndex": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Give this workspace's server its own index cache under the extension's storage, instead of the shared `~/.cache/JetBrains` location.\n\nThe shared index is **locked** by whichever server holds it, so leaving this off means a second server on the same project (the official extension, or one you started yourself) cannot start at all. Isolating costs disk and one re-index."
+        },
+        "kotlinLspDev.additionalJvmArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Extra JVM arguments for the language server process."
+        },
+        "kotlinLspDev.buildTool": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Build tool the server should import with (null = any, \"\" = none)."
+        },
         "kotlinLspDev.log": {
           "type": "string",
-          "enum": [
-            "off",
-            "routing",
-            "verbose",
-            "trace"
-          ],
+          "enum": ["off", "routing", "verbose", "trace"],
           "default": "routing",
-          "description": "Routing detail the composition server writes to its log (KOTLIN_LSP_DEV_LOG)."
+          "description": "Routing detail the composition server writes to its log (KOTLIN_LSP_DEV_LOG). Ignored when attaching, where the level belongs to the process you started."
         },
         "kotlinLspDev.trace.server": {
           "type": "string",
-          "enum": [
-            "off",
-            "messages",
-            "verbose"
-          ],
+          "enum": ["off", "messages", "verbose"],
           "default": "off",
           "description": "Trace the LSP traffic between VS Code and the server, in the extension's output channel."
         }
       }
     },
     "commands": [
-      {
-        "command": "kotlinLspDev.doctor",
-        "title": "Kotlin: Doctor (workspace health report)"
-      },
-      {
-        "command": "kotlinLspDev.analyzeStackTrace",
-        "title": "Kotlin: Analyze JVM stack trace"
-      },
-      {
-        "command": "kotlinLspDev.findTextInDependencyJars",
-        "title": "Kotlin: Find text in dependency jars"
-      },
-      {
-        "command": "kotlinLspDev.copyFullyQualifiedName",
-        "title": "Kotlin: Copy fully-qualified name"
-      },
-      {
-        "command": "kotlinLspDev.restart",
-        "title": "Kotlin: Restart language server"
-      },
-      {
-        "command": "kotlinLspDev.showOutput",
-        "title": "Kotlin: Show language server output"
-      }
-    ]
+      { "command": "kotlinLspDev.doctor", "title": "Kotlin: Doctor (workspace health report)" },
+      { "command": "kotlinLspDev.analyzeStackTrace", "title": "Kotlin: Analyze JVM stack trace" },
+      { "command": "kotlinLspDev.findTextInDependencyJars", "title": "Kotlin: Find text in dependency jars" },
+      { "command": "kotlinLspDev.copyFullyQualifiedName", "title": "Kotlin: Copy fully-qualified name" },
+      { "command": "kotlinLspDev.organizeImports", "title": "Kotlin: Organize imports" },
+      { "command": "kotlinLspDev.exportWorkspaceToJson", "title": "Kotlin: Export workspace structure to JSON" },
+      { "command": "kotlinLspDev.reloadWorkspace", "title": "Kotlin: Reload workspace" },
+      { "command": "kotlinLspDev.restart", "title": "Kotlin: Restart language server" },
+      { "command": "kotlinLspDev.clearCachesAndRestart", "title": "Kotlin: Clear caches and restart language server" },
+      { "command": "kotlinLspDev.showFeatures", "title": "Kotlin: Show enhanced features in this server" },
+      { "command": "kotlinLspDev.showOutput", "title": "Kotlin: Show language server output" }
+    ],
+    "menus": {
+      "commandPalette": [
+        { "command": "kotlinLspDev.copyFullyQualifiedName", "when": "editorLangId == kotlin" },
+        { "command": "kotlinLspDev.organizeImports", "when": "editorLangId == kotlin" }
+      ],
+      "editor/context": [
+        {
+          "command": "kotlinLspDev.copyFullyQualifiedName",
+          "when": "editorLangId == kotlin",
+          "group": "9_cutcopypaste"
+        }
+      ]
+    }
   },
   "scripts": {
     "compile": "tsc -p ./",
