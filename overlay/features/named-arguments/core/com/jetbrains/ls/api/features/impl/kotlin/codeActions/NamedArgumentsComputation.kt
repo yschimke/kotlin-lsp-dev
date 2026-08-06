@@ -11,55 +11,28 @@ import org.jetbrains.kotlin.psi.KtConstructor
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtFunction
 import org.jetbrains.kotlin.psi.KtParameter
-import org.jetbrains.kotlin.psi.KtValueArgument
 
 /**
- * Pure-PSI computation behind two related code actions on a Kotlin call:
+ * Pure-PSI computation for filling an empty Kotlin call with a named `TODO()` per parameter,
+ * which is what [Kotlin/kotlin-lsp#175](https://github.com/Kotlin/kotlin-lsp/issues/175) asked for.
  *
- *  - **Add names to arguments** — turn `f(1, 2)` into `f(first = 1, second = 2)`.
- *  - **Fill arguments with placeholders** — turn `f()` into a named `TODO()` per parameter, which
- *    is what [Kotlin/kotlin-lsp#175](https://github.com/Kotlin/kotlin-lsp/issues/175) asked for.
+ * It deliberately does **not** offer "add names to existing arguments". The shipped server already
+ * provides that as a built-in `quickfix` intention titled "Add names to call arguments" -- adding
+ * our own would put a duplicate entry in every user's code-action list for no gain. That was found
+ * by running the smoke suite against a stock server (`smoke-test.py --stock`), which is exactly
+ * what that negative control exists to catch.
  *
- * Both need the same thing: the callee resolved to a Kotlin function whose parameter names are
- * known and unambiguous. Named arguments are a Kotlin-only calling convention, so a call that
- * resolves to a Java method is declined -- naming its arguments would not compile.
+ * Named arguments are a Kotlin-only calling convention, so a call resolving to a Java method is
+ * declined -- naming its arguments would not compile.
  */
 object NamedArgumentsComputation {
-    data class Insertion(val offset: Int, val text: String)
-
-    /** Names to add in front of existing positional arguments. */
-    data class Naming(val insertions: List<Insertion>, val calleeName: String)
-
     /** Placeholder argument list for a call written with empty parentheses. */
-    data class Fill(val range: TextRange, val text: String, val calleeName: String, val parameters: List<String>)
-
-    fun namingAt(file: PsiFile, offset: Int): Naming? {
-        val call = callAt(file, offset) ?: return null
-        val parameters = parametersOf(call) ?: return null
-        val arguments = call.valueArguments.filterIsInstance<KtValueArgument>()
-        if (arguments.isEmpty()) return null
-
-        // Kotlin requires positional arguments to precede named ones. Only name a leading run of
-        // unnamed arguments, so the result is still a legal argument list.
-        val unnamed = arguments.takeWhile { it.getArgumentName() == null }
-        if (unnamed.isEmpty()) return null
-        if (arguments.drop(unnamed.size).any { it.getArgumentName() == null }) return null
-        if (unnamed.size > parameters.size) return null
-        // A spread argument fills a vararg positionally and cannot simply take a name.
-        if (unnamed.any { it.getSpreadElement() != null }) return null
-
-        val targeted = parameters.take(unnamed.size)
-        // Naming a vararg parameter changes what the argument means; decline rather than guess.
-        if (targeted.any { it.isVarArg }) return null
-        val names = targeted.map { it.name ?: return null }
-
-        val insertions = unnamed.zip(names).mapNotNull { (argument, name) ->
-            val expression = argument.getArgumentExpression() ?: return@mapNotNull null
-            Insertion(expression.textRange.startOffset, "$name = ")
-        }
-        if (insertions.size != unnamed.size) return null
-        return Naming(insertions, calleeName(call))
-    }
+    data class Fill(
+        val range: TextRange,
+        val text: String,
+        val calleeName: String,
+        val parameters: List<String>,
+    )
 
     fun fillAt(file: PsiFile, offset: Int): Fill? {
         val call = callAt(file, offset) ?: return null

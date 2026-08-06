@@ -18,7 +18,7 @@ PR-then-drop property the cores and unit tests have. A feature with no smoke/ di
 simply has no end-to-end coverage, which is the correct state for one that is
 release-gated or non-additive and therefore cannot be served at all.
 
-Usage: smoke-test.py <server-dir> [--expect=type-hierarchy,... | --each] [--socket]
+Usage: smoke-test.py <server-dir> [--expect=type-hierarchy,... | --each] [--socket] [--stock]
 
 <server-dir> is an unpacked server with the overlay already applied (see
 install-overlay.sh). --expect narrows the run to named features and fails if one of them
@@ -26,6 +26,13 @@ has no check; --each runs every discovered check in its own server process and w
 The default runs every feature together in one server to verify that they compose.
 --socket drives the same checks over the TCP transport the VS Code extension uses, rather
 than over stdio.
+
+--stock is the negative control, and inverts the verdict: it drives the *shipped*
+bin/intellij-server on a server with no overlay applied, and requires every check to FAIL.
+A check that passes there is asserting something the stock server already does, so it
+would keep passing if the feature were deleted -- which makes it worthless as evidence
+that the feature works. Two of the original three checks were in exactly that state and
+were caught by hand; this makes it a harness property instead.
 """
 
 import importlib.util
@@ -69,7 +76,7 @@ class SmokeError(Exception):
 class Server:
     """Minimal LSP client. The object passed to each feature's check()."""
 
-    def __init__(self, server_dir, root, transport="stdio"):
+    def __init__(self, server_dir, root, transport="stdio", launcher_name="enhanced-server"):
         system_path = os.path.join(root, ".server-system")
         env = os.environ.copy()
         env.update({
@@ -81,7 +88,7 @@ class Server:
         env["JAVA_TOOL_OPTIONS"] = (
             java_options + " -Duser.home=" + os.path.join(root, ".user-home")
         ).strip()
-        launcher = os.path.join(server_dir, "bin", "enhanced-server")
+        launcher = os.path.join(server_dir, "bin", launcher_name)
         # --socket 0 binds an ephemeral port and announces it the way the shipped launcher does;
         # this is the transport the VS Code extension uses, so exercising it end-to-end is what
         # proves the composition server is a drop-in rather than a stdio-only convenience.
@@ -193,6 +200,27 @@ class Server:
                 self._write({"jsonrpc": "2.0", "id": msg["id"], "result": result})
         raise SmokeError("timed out after %ds waiting for response %s" % (TIMEOUT, want))
 
+    @staticmethod
+    def apply_edits(text, edits):
+        """Apply LSP TextEdits to `text` the way a conforming client would.
+
+        Ranges are all computed against the original document and must not overlap, so applying
+        them back-to-front is safe and order-independent. Shared here rather than copied into each
+        feature so that a check asserting on the *result* of an edit costs nothing to write --
+        asserting an edit merely exists is what lets a corrupt TextEdit pass.
+        """
+        def offset(position):
+            lines = text.splitlines(keepends=True)
+            return sum(len(line) for line in lines[:position["line"]]) + position["character"]
+
+        positioned = [
+            (offset(e["range"]["start"]), offset(e["range"]["end"]), e["newText"]) for e in edits
+        ]
+        out = text
+        for start, end, replacement in sorted(positioned, reverse=True):
+            out = out[:start] + replacement + out[end:]
+        return out
+
     def shutdown(self):
         try:
             self.request("shutdown", None)
@@ -200,6 +228,12 @@ class Server:
             self.proc.wait(timeout=20)
         except Exception:
             self.proc.kill()
+
+
+def _brief(err, limit=90):
+    """First line of a failure reason, trimmed -- the stock run prints one per feature."""
+    text = str(err).strip().splitlines()[0] if str(err).strip() else type(err).__name__
+    return text if len(text) <= limit else text[:limit - 3] + "..."
 
 
 def discover_features():
@@ -226,6 +260,7 @@ def main():
 
     features = discover_features()
     run_each = False
+    stock = False
     transport = "stdio"
     for arg in sys.argv[2:]:
         if arg.startswith("--expect="):
@@ -239,6 +274,8 @@ def main():
             run_each = True
         elif arg == "--socket":
             transport = "socket"
+        elif arg == "--stock":
+            stock = True
         else:
             sys.exit("unknown argument: %s\n\n%s" % (arg, __doc__))
     if not features:
@@ -246,9 +283,16 @@ def main():
     if run_each and any(arg.startswith("--expect=") for arg in sys.argv[2:]):
         sys.exit("--each and --expect cannot be used together")
 
-    launcher = os.path.join(server_dir, "bin", "enhanced-server")
+    # The negative control drives the shipped launcher on a server with no overlay applied.
+    # Anything the overlay adds -- injected providers and the composition server's repairs alike --
+    # is absent there, so every check must fail. One that passes is not proving what it claims.
+    launcher_name = "intellij-server" if stock else "enhanced-server"
+    launcher = os.path.join(server_dir, "bin", launcher_name)
     if not os.path.isfile(launcher):
-        sys.exit("error: %s is not an unpacked kotlin-lsp server" % server_dir)
+        sys.exit("error: %s has no bin/%s" % (server_dir, launcher_name))
+    if stock and transport == "socket":
+        sys.exit("--stock and --socket cannot be used together: the TCP transport is the "
+                 "composition server's, and a stock server has no composition server")
 
     if run_each:
         failures = []
@@ -263,7 +307,8 @@ def main():
             )
             result = subprocess.run(
                 [sys.executable, os.path.abspath(__file__), server_dir, "--expect=" + name]
-                + (["--socket"] if transport == "socket" else []),
+                + (["--socket"] if transport == "socket" else [])
+                + (["--stock"] if stock else []),
                 env=child_env,
             )
             if result.returncode:
@@ -271,7 +316,11 @@ def main():
         if failures:
             print("\n[smoke-each] FAILED: %s" % ", ".join(failures))
             return 1
-        print("\n[smoke-each] PASS -- %d feature(s) served independently" % len(features))
+        if stock:
+            print("\n[smoke-each] PASS -- %d check(s) correctly failed in isolation"
+                  % len(features))
+        else:
+            print("\n[smoke-each] PASS -- %d feature(s) served independently" % len(features))
         return 0
 
     # One workspace holding every feature's fixture as its own file, so a single server start
@@ -298,7 +347,7 @@ def main():
     print("[smoke] features:  %s" % ", ".join(name for name, _ in features))
 
     root_uri = "file://" + root
-    lsp = Server(server_dir, root, transport)
+    lsp = Server(server_dir, root, transport, launcher_name)
     started = time.time()
     failures = []
     try:
@@ -334,12 +383,36 @@ def main():
 
         for name, module in features:
             try:
-                print("[smoke]   PASS %-16s %s" % (name, module.check(lsp, uris[name])))
+                detail = module.check(lsp, uris[name])
             except (AssertionError, SmokeError) as err:
-                print("[smoke]   FAIL %-16s %s" % (name, err))
+                if stock:
+                    # Declined by an unmodified server, which is the whole point of this run.
+                    print("[stock]   OK   %-16s correctly unavailable: %s" % (name, _brief(err)))
+                else:
+                    print("[smoke]   FAIL %-16s %s" % (name, err))
+                    failures.append(name)
+            except Exception as err:  # noqa: BLE001 - a check crash is a check bug either way
+                print("[%s]   FAIL %-16s check raised %s: %s"
+                      % ("stock" if stock else "smoke", name, type(err).__name__, err))
                 failures.append(name)
+            else:
+                if stock:
+                    print("[stock]   FAIL %-16s passed against an unmodified server: %s"
+                          % (name, detail))
+                    failures.append(name)
+                else:
+                    print("[smoke]   PASS %-16s %s" % (name, detail))
     finally:
         lsp.shutdown()
+
+    if stock:
+        if failures:
+            print("\n[stock] FAILED -- these checks do not discriminate: %s" % ", ".join(failures))
+            print("[stock] A check that passes without the overlay is asserting something the "
+                  "shipped server already does.")
+            return 1
+        print("\n[stock] PASS -- all %d check(s) correctly fail without the overlay" % len(features))
+        return 0
 
     if failures:
         print("\n[smoke] FAILED: %s" % ", ".join(failures))

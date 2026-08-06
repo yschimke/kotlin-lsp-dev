@@ -124,6 +124,13 @@ Then add a row to the "Current features" table in [README.md](README.md). Add a 
 **No build-file edit is needed** — `build.gradle.kts` auto-discovers `overlay/features/*/core`, so
 adding or deleting a feature directory is the whole change.
 
+**Before writing anything, check whether the server already does it.** Open the fixture on a stock
+server and ask for the response you plan to provide — and *poll*, because intention-backed code
+actions only appear once analysis is ready, so asking once will tell you it is missing when it is
+not. A duplicate action is worse than no action: it clutters every user's list and cannot be
+distinguished from the built-in. `scripts/smoke-test.py <stock-server> --stock` is the mechanical
+form of this question and runs in CI.
+
 ## Build and verify
 
 ```sh
@@ -145,8 +152,13 @@ feature whose LSP API is absent from the pinned release is silently skipped with
 Unit tests alone are insufficient — they exercise `core/`, which by design cannot catch a
 registration, dispatch, or capability problem. Add a `smoke/check.py` and verify against a real
 patched server (`scripts/smoke-test.py <server-dir>`), then record the result in the feature's
-README, as the existing features do. Run `--each` to prove the feature stands alone and
-`--socket` to prove it survives the TCP transport VS Code uses. Most of the ways an overlay feature fails are invisible to unit tests:
+README, as the existing features do. Run `--each` to prove the feature stands alone, `--socket`
+to prove it survives the TCP transport VS Code uses, and `--stock` to prove the check fails
+without the overlay at all.
+
+**Assert on the applied edit, not on an edit existing.** `lsp.apply_edits(text, edits)` applies a
+response the way a client would; compare the resulting source. A provider returning a corrupt or
+misordered `TextEdit` sails through a presence assertion. Most of the ways an overlay feature fails are invisible to unit tests:
 
 - The provider never registers (missing/malformed services file).
 - The `uniqueId` collides and the server fails to start.

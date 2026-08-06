@@ -132,3 +132,12 @@ jobs:
       # composition server is actually used over needs its own end-to-end run.
       - name: Run the suite over the TCP transport
         run: ./scripts/smoke-test.py build/smoke-server --socket
+
+      # Negative control. build/dist/kotlin-server-<v> is the pristine download -- the copy above
+      # was made before install-overlay.sh touched anything. Every check must FAIL there: one that
+      # passes is asserting something the stock server already does, and would keep passing if the
+      # feature were deleted. This caught a code action that duplicated a shipped built-in.
+      - name: Require every check to fail against an unmodified server
+        run: |
+          version="$(grep -E '^kotlinLspVersion=' dist.properties | cut -d= -f2)"
+          ./scripts/smoke-test.py "build/dist/kotlin-server-$version" --stock

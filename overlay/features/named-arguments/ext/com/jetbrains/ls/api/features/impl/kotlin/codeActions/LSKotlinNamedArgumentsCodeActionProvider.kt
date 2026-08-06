@@ -2,7 +2,6 @@
 package com.jetbrains.ls.api.features.impl.kotlin.codeActions
 
 import com.intellij.openapi.application.readAction
-import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.findDocument
 import com.intellij.openapi.vfs.findPsiFile
 import com.jetbrains.ls.api.core.LSServer
@@ -17,18 +16,17 @@ import com.jetbrains.lsp.implementation.LspHandlerContext
 import com.jetbrains.lsp.protocol.CodeAction
 import com.jetbrains.lsp.protocol.CodeActionKind
 import com.jetbrains.lsp.protocol.CodeActionParams
-import com.jetbrains.lsp.protocol.Range
 import com.jetbrains.lsp.protocol.TextEdit
 import com.jetbrains.lsp.protocol.WorkspaceEdit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
 /**
- * Two code actions on a Kotlin call: name its positional arguments, or fill an empty argument list
- * with a `TODO()` placeholder per parameter.
+ * Fills an empty Kotlin call with a `TODO()` placeholder per parameter.
  *
- * Both are `refactor.rewrite`: they restructure a call without extracting or inlining anything.
- * At most one applies to any given call -- naming needs arguments, filling needs none.
+ * `refactor.rewrite`: it restructures a call without extracting or inlining anything. Note that
+ * "add names to existing arguments" is deliberately absent -- the shipped server already provides
+ * it as a built-in intention. See [NamedArgumentsComputation].
  */
 internal object LSKotlinNamedArgumentsCodeActionProvider : LSCodeActionProvider {
     override val supportedLanguages: Set<LSLanguage> = setOf(LSKotlinLanguage)
@@ -42,24 +40,16 @@ internal object LSKotlinNamedArgumentsCodeActionProvider : LSCodeActionProvider 
                 val psiFile = vf.findPsiFile(project) ?: return@readAction emptyList()
                 val document = vf.findDocument() ?: return@readAction emptyList()
                 val offset = document.offsetByPosition(params.range.start)
-                val out = ArrayList<CodeAction>(1)
-
-                NamedArgumentsComputation.namingAt(psiFile, offset)?.let { naming ->
-                    val edits = naming.insertions.map { insertion ->
-                        val at = TextRange(insertion.offset, insertion.offset).toLspRange(document).start
-                        TextEdit(Range(at, at), insertion.text)
-                    }
-                    out += action("Add names to arguments of '${naming.calleeName}'", params, edits)
-                }
-                NamedArgumentsComputation.fillAt(psiFile, offset)?.let { fill ->
-                    val edits = listOf(TextEdit(fill.range.toLspRange(document), fill.text))
-                    out += action(
+                val fill = NamedArgumentsComputation.fillAt(psiFile, offset)
+                    ?: return@readAction emptyList()
+                val edits = listOf(TextEdit(fill.range.toLspRange(document), fill.text))
+                listOf(
+                    action(
                         "Fill arguments of '${fill.calleeName}' (${fill.parameters.size} parameter(s))",
                         params,
                         edits,
                     )
-                }
-                out
+                )
             }
         }
         actions.forEach { emit(it) }

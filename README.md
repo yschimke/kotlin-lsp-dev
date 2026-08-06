@@ -77,7 +77,7 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Extract variable** — new (code action) | ✅ runnable | unit tests + CI smoke test (direct declaration + replacement edit) |
 | **Extract function** — new (code action) | ✅ runnable | unit tests + CI smoke test (signature, substituted call, statements moved) |
 | **Inline variable** — new (code action) | ✅ runnable | unit tests + CI smoke test (applied edits compared to expected source) |
-| **Named call arguments** — new ([#175](https://github.com/Kotlin/kotlin-lsp/issues/175)) | ✅ runnable | unit tests + CI smoke test (add names + fill placeholders) |
+| **Fill named call arguments** — new ([#175](https://github.com/Kotlin/kotlin-lsp/issues/175)) | ✅ runnable | unit tests + CI smoke test (applied edit compared to expected source) |
 | **Unused-import diagnostics** — enhancement ([#201](https://github.com/Kotlin/kotlin-lsp/issues/201)) | ✅ runnable | unit tests + CI smoke test (warning + `Unnecessary` tag) |
 | **Workspace commands** — doctor, stack traces, dependency search, FQN | ✅ runnable | unit tests + CI smoke test (all four commands) |
 | **Implement/override members** — declaration-generation code actions | ✅ runnable | unit tests + CI smoke test (direct implementation edit) |
@@ -220,23 +220,38 @@ The smoke test is the end-to-end one: it builds the overlay jar, applies it to a
 way a user would, drives it over stdio, and asserts the responses. Its assertions are written to
 fail against an **un-patched** server — e.g. the stock server already returns a `comment`-kind
 fold over the same lines as our `//region` block, so the check requires the `region` kind
-specifically. Run it against a stock server whenever you add or change a check:
+specifically. `--stock` enforces that property for every check (see below).
 
-```sh
-./scripts/smoke-test.py /path/to/stock-kotlin-server-<v>   # must fail every check
-```
+Checks assert on **applied edits**, not on an edit merely existing. `lsp.apply_edits(text, edits)`
+applies a response the way a conforming client would, so a check can compare the resulting source.
+An action returning a corrupt or misordered `TextEdit` passes a presence assertion and fails a
+content one.
 
 `smoke-test.py` is only the harness. Each feature supplies `smoke/check.py` defining a `FIXTURE`
 (Kotlin source) and a `check(lsp, uri)`; the harness discovers them, writes every fixture into one
 workspace, starts the server once, and runs each check against its own file. `--expect=<names>`
 narrows the run.
 
-CI runs the suite three ways. The default combined run proves all extensions and proxy repairs
+CI runs the suite four ways. The default combined run proves all extensions and proxy repairs
 coexist in one server. `--each` starts a fresh server and workspace for every feature, proving
 each check passes independently and making registration or order-dependent failures easier to
 isolate. `--socket` runs the same checks over the TCP transport the VS Code extension dials,
 proving the composition server is a drop-in for the stock launcher rather than a stdio-only
 convenience.
+
+`--stock` is the **negative control**, and it inverts the verdict: it drives the shipped
+`bin/intellij-server` on a server with no overlay applied and requires every check to *fail*.
+
+```sh
+./scripts/smoke-test.py build/dist/kotlin-server-<v> --stock   # every check must fail
+```
+
+This matters more than it sounds. A check that passes against an unmodified server is asserting
+something the shipped server already does — it would keep passing if the feature were deleted, so
+it is not evidence the feature works. Two of the original three checks were in that state and were
+caught by hand. It is now a harness property, and it immediately earned its place: it revealed that
+a code action being added here duplicated a built-in the server already shipped, and that half of
+the feature was removed as a result.
 
 The workspace carries a `workspace.json` for the server's JSON workspace importer. That module
 definition is load-bearing: without it the files are opened outside any module and index-backed

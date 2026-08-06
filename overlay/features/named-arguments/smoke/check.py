@@ -1,7 +1,11 @@
-"""Smoke check for the named-argument code actions.
+"""Smoke check for the fill-arguments code action.
 
-Exercises both actions against a real server and applies their edits, so a provider returning a
-plausible-looking but wrong edit set fails rather than passes.
+Applies the returned edit and compares the source, so a provider returning a plausible-looking but
+wrong edit fails rather than passes.
+
+There is deliberately no check for "add names to existing arguments": the shipped server already
+offers that as a built-in intention, so the overlay does not duplicate it. That was found by
+`smoke-test.py --stock`, which caught this check passing against an unmodified server.
 """
 
 FIXTURE = """\
@@ -18,10 +22,6 @@ fun empty() {
 }
 """
 
-NAMED = """\
-    configure(host = "localhost", port = 8080, secure = true)
-"""
-
 FILLED = """\
     configure(
         host = TODO(),
@@ -30,25 +30,8 @@ FILLED = """\
     )
 """
 
-# `    configure("localhost", 8080, true)` -- line 5, caret on the callee.
-POSITIONAL_LINE, POSITIONAL_CHARACTER = 5, 4
 # `    configure()` -- line 9.
 EMPTY_LINE, EMPTY_CHARACTER = 9, 4
-
-
-def _offset(text, position):
-    lines = text.splitlines(keepends=True)
-    return sum(len(line) for line in lines[:position["line"]]) + position["character"]
-
-
-def _apply(text, edits):
-    positioned = [
-        (_offset(text, e["range"]["start"]), _offset(text, e["range"]["end"]), e["newText"])
-        for e in edits
-    ]
-    for start, end, replacement in sorted(positioned, reverse=True):
-        text = text[:start] + replacement + text[end:]
-    return text
 
 
 def _action_at(lsp, uri, line, character, prefix):
@@ -73,14 +56,8 @@ def _action_at(lsp, uri, line, character, prefix):
 
 
 def check(lsp, uri):
-    _, name_edits = _action_at(lsp, uri, POSITIONAL_LINE, POSITIONAL_CHARACTER, "Add names")
-    named = _apply(FIXTURE, name_edits)
-    if NAMED not in named:
-        raise AssertionError("naming produced unexpected source:\n%s" % named)
-
     fill, fill_edits = _action_at(lsp, uri, EMPTY_LINE, EMPTY_CHARACTER, "Fill arguments")
-    filled = _apply(FIXTURE, fill_edits)
+    filled = lsp.apply_edits(FIXTURE, fill_edits)
     if FILLED not in filled:
         raise AssertionError("fill produced unexpected source:\n%s" % filled)
-
-    return "named %d argument(s) and filled 3 placeholder(s)" % len(name_edits)
+    return "%r filled 3 placeholder(s)" % fill["title"]
