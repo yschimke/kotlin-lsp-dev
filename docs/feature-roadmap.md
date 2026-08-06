@@ -1,7 +1,8 @@
 # LSP feature survey and overlay roadmap
 
 _Surveyed 2026-07-26 against the open Kotlin/kotlin-lsp issue tracker and the pinned `262.8190.0`
-dispatch surface._
+dispatch surface. **Two of its conclusions no longer hold — see the 2026-08-06 update at the
+bottom before using this as a plan.**_
 
 ## What mature language servers set as the baseline
 
@@ -60,3 +61,39 @@ dispatch/capability constraints rather than missing overlay code.
 Not candidates for this overlay: extra completion, formatting, signature help, hover replacement,
 document highlights, selection ranges, and code lenses on the current release. Their dispatch or
 capability constraints make an otherwise-good implementation unreachable or actively harmful.
+
+---
+
+## Update, 2026-08-06 — pinned release `263.2689.0`
+
+Two conclusions above were correct for `262.8190.0` and are now wrong. Both were wrong for the
+same reason: they treated "unreachable on the pinned release, in-process" as permanent.
+
+**Code lenses are shipped.** Item 5 release-gated code vision because `262.8190.0` did not expose
+`codeLens`. `263.2689.0` advertises `codeLensProvider` and ships `LSCodeLensProvider`, and the
+feature activated with no code change. It is live-verified. Note how the newer build was found:
+`fetch-dist.sh --check` had been probing invented build numbers, getting 404s and concluding the
+pin was newest, while `263.2689.0` was already on the CDN and inside VS Code extension 0.0.8. The
+survey's "there is no newer public server" premise was an artefact of a broken probe, not a fact.
+
+**Document highlights are shipped.** They were listed as not a candidate, and as an in-process
+overlay feature they still are not — `263.2689.0` has no highlight provider interface at all. But
+`bin/enhanced-server` owns the LSP boundary, and `documentHighlight` reduces to a filtered
+`textDocument/references`, which the child does answer. It is implemented there and live-verified.
+
+**What this changes about how to read the rest of this document.** "Not a candidate" needs
+splitting into two claims that were previously conflated:
+
+- *Not a candidate in-process* — dispatch or capability constraints inside the child. Still true
+  of extra completion, formatting, signature help, and hover replacement, and those remain
+  actively harmful to attempt.
+- *Not a candidate anywhere* — the operation cannot be reduced to requests the child already
+  answers, so nothing can compute it honestly. This is a much smaller set than the list above.
+
+`selectionRange` is the interesting remaining case. It has no provider interface and is not
+advertised, so it is out in-process. Whether it belongs at the boundary depends on whether it can
+be built from requests the child answers; a brace- and indentation-based approximation would be
+easy and would be the wrong thing to ship, because a client that trusts the advertised capability
+would show wrong selections rather than none. Unanswered, and worth answering deliberately.
+
+See "When a feature cannot be a provider" in AGENTS.md for the three tiers this now implies.
