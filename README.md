@@ -196,6 +196,12 @@ nothing — that is how this repo once sat on `262.8190.0` while `263.2689.0` wa
 published. `--check` reads the build out of any installed Marketplace extension (the earliest
 reliable signal), then reports the newest extension and GitHub release for comparison.
 
+## Design notes
+
+- [The composition server](docs/lsp-proxy.md) — how the LSP boundary reaches operations no
+  in-process provider can, and the rule that keeps that honest.
+- [LSP feature survey and roadmap](docs/feature-roadmap.md) — peer comparison and what is left.
+
 ## Testing
 
 Three layers, all run by CI (`.github/workflows/ci.yml` on every push and PR). They check
