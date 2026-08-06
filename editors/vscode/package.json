@@ -35,15 +35,20 @@
     "languages": [
       {
         "id": "kotlin",
-        "aliases": ["Kotlin", "kotlin"],
-        "extensions": [".kt", ".kts"],
+        "aliases": [
+          "Kotlin",
+          "kotlin"
+        ],
+        "extensions": [
+          ".kt",
+          ".kts"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
     "configurationDefaults": {
       "[kotlin]": {
-        "editor.autoIndent": "none",
-        "editor.formatOnType": false
+        "editor.autoIndent": "full"
       }
     },
     "breakpoints": [
@@ -55,10 +60,14 @@
       {
         "type": "kotlinLspDev",
         "label": "Kotlin (kotlin-lsp-dev)",
-        "languages": ["kotlin"],
+        "languages": [
+          "kotlin"
+        ],
         "configurationAttributes": {
           "launch": {
-            "required": ["mainClass"],
+            "required": [
+              "mainClass"
+            ],
             "properties": {
               "mainClass": {
                 "type": "string",
@@ -70,13 +79,17 @@
               },
               "args": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "default": [],
                 "description": "Program arguments."
               },
               "jvmArgs": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "default": [],
                 "description": "JVM arguments."
               },
@@ -93,10 +106,18 @@
             }
           },
           "attach": {
-            "required": ["hostName", "port"],
+            "required": [
+              "hostName",
+              "port"
+            ],
             "properties": {
-              "hostName": { "type": "string", "default": "localhost" },
-              "port": { "type": "number" }
+              "hostName": {
+                "type": "string",
+                "default": "localhost"
+              },
+              "port": {
+                "type": "number"
+              }
             }
           }
         },
@@ -141,7 +162,7 @@
         "kotlinLspDev.serverPath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Directory of a standalone server installed by `scripts/install.sh`. Empty means `~/.local/share/kotlin-lsp-enhanced`. The server is expected to be self-contained — this extension neither downloads a distribution nor looks for a JDK."
+          "markdownDescription": "Directory of a standalone server installed by `scripts/install.sh`. Empty means `~/.local/share/kotlin-lsp-enhanced`. The server is expected to be self-contained \u2014 this extension neither downloads a distribution nor looks for a JDK."
         },
         "kotlinLspDev.serverPort": {
           "type": "number",
@@ -155,46 +176,110 @@
         },
         "kotlinLspDev.additionalJvmArgs": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Extra JVM arguments for the language server process."
         },
         "kotlinLspDev.buildTool": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "default": null,
           "description": "Build tool the server should import with (null = any, \"\" = none)."
         },
         "kotlinLspDev.log": {
           "type": "string",
-          "enum": ["off", "routing", "verbose", "trace"],
+          "enum": [
+            "off",
+            "routing",
+            "verbose",
+            "trace"
+          ],
           "default": "routing",
           "description": "Routing detail the composition server writes to its log (KOTLIN_LSP_DEV_LOG). Ignored when attaching, where the level belongs to the process you started."
         },
         "kotlinLspDev.trace.server": {
           "type": "string",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "default": "off",
           "description": "Trace the LSP traffic between VS Code and the server, in the extension's output channel."
+        },
+        "kotlinLspDev.templates": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "File templates per language id, as `{ \"kotlin\": { \"Class\": \"...\" } }`. When a new empty file is created, its language's templates are offered and the chosen one is interpolated by the server (`interpolateFileTemplate`), which fills in the package and file name. A `|` in the template marks where the caret lands.\n\nExample:\n```json\n{ \"kotlin\": { \"Class\": \"class ${NAME} {\\n    |\\n}\" } }\n```",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
         }
       }
     },
     "commands": [
-      { "command": "kotlinLspDev.doctor", "title": "Kotlin: Doctor (workspace health report)" },
-      { "command": "kotlinLspDev.analyzeStackTrace", "title": "Kotlin: Analyze JVM stack trace" },
-      { "command": "kotlinLspDev.findTextInDependencyJars", "title": "Kotlin: Find text in dependency jars" },
-      { "command": "kotlinLspDev.copyFullyQualifiedName", "title": "Kotlin: Copy fully-qualified name" },
-      { "command": "kotlinLspDev.organizeImports", "title": "Kotlin: Organize imports" },
-      { "command": "kotlinLspDev.exportWorkspaceToJson", "title": "Kotlin: Export workspace structure to JSON" },
-      { "command": "kotlinLspDev.reloadWorkspace", "title": "Kotlin: Reload workspace" },
-      { "command": "kotlinLspDev.restart", "title": "Kotlin: Restart language server" },
-      { "command": "kotlinLspDev.clearCachesAndRestart", "title": "Kotlin: Clear caches and restart language server" },
-      { "command": "kotlinLspDev.showFeatures", "title": "Kotlin: Show enhanced features in this server" },
-      { "command": "kotlinLspDev.showOutput", "title": "Kotlin: Show language server output" }
+      {
+        "command": "kotlinLspDev.doctor",
+        "title": "Kotlin: Doctor (workspace health report)"
+      },
+      {
+        "command": "kotlinLspDev.analyzeStackTrace",
+        "title": "Kotlin: Analyze JVM stack trace"
+      },
+      {
+        "command": "kotlinLspDev.findTextInDependencyJars",
+        "title": "Kotlin: Find text in dependency jars"
+      },
+      {
+        "command": "kotlinLspDev.copyFullyQualifiedName",
+        "title": "Kotlin: Copy fully-qualified name"
+      },
+      {
+        "command": "kotlinLspDev.organizeImports",
+        "title": "Kotlin: Organize imports"
+      },
+      {
+        "command": "kotlinLspDev.exportWorkspaceToJson",
+        "title": "Kotlin: Export workspace structure to JSON"
+      },
+      {
+        "command": "kotlinLspDev.reloadWorkspace",
+        "title": "Kotlin: Reload workspace"
+      },
+      {
+        "command": "kotlinLspDev.restart",
+        "title": "Kotlin: Restart language server"
+      },
+      {
+        "command": "kotlinLspDev.clearCachesAndRestart",
+        "title": "Kotlin: Clear caches and restart language server"
+      },
+      {
+        "command": "kotlinLspDev.showFeatures",
+        "title": "Kotlin: Show enhanced features in this server"
+      },
+      {
+        "command": "kotlinLspDev.showOutput",
+        "title": "Kotlin: Show language server output"
+      }
     ],
     "menus": {
       "commandPalette": [
-        { "command": "kotlinLspDev.copyFullyQualifiedName", "when": "editorLangId == kotlin" },
-        { "command": "kotlinLspDev.organizeImports", "when": "editorLangId == kotlin" }
+        {
+          "command": "kotlinLspDev.copyFullyQualifiedName",
+          "when": "editorLangId == kotlin"
+        },
+        {
+          "command": "kotlinLspDev.organizeImports",
+          "when": "editorLangId == kotlin"
+        }
       ],
       "editor/context": [
         {

@@ -63,6 +63,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     registerDecompiledSources(context);
     registerDebugging(context);
+    registerFileTemplates(context);
     await warnAboutConflictingExtensions();
     await start(context);
 }
@@ -628,6 +629,57 @@ function registerDebugging(context: vscode.ExtensionContext): void {
         },
     };
     context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory('kotlinLspDev', factory));
+}
+
+// --- file templates ------------------------------------------------------------------------
+
+/**
+ * Fills a newly created empty file from a template.
+ *
+ * The interpolation is the server's (`interpolateFileTemplate`), which is what knows the package
+ * name for the file's location -- the part that is tedious to type and easy to get wrong. Templates
+ * come from `kotlinLspDev.templates`, keyed by language id; with none configured this does nothing.
+ */
+function registerFileTemplates(context: vscode.ExtensionContext): void {
+    context.subscriptions.push(
+        vscode.workspace.onDidCreateFiles(async (event) => {
+            if (event.files.length !== 1) return;
+            await applyTemplate(event.files[0]);
+        }),
+    );
+}
+
+async function applyTemplate(uri: vscode.Uri): Promise<void> {
+    if (!client || client.state !== State.Running) return;
+    let document: vscode.TextDocument;
+    try {
+        document = await vscode.workspace.openTextDocument(uri);
+    } catch {
+        return;
+    }
+    // Only an empty file: anything already written is the user's.
+    if (document.getText().length > 0) return;
+
+    const configured = vscode.workspace
+        .getConfiguration('kotlinLspDev', uri)
+        .get<Record<string, Record<string, string>>>('templates');
+    const templates = configured?.[document.languageId];
+    const names = templates ? Object.keys(templates) : [];
+    if (names.length === 0) return;
+
+    const chosen =
+        names.length === 1
+            ? names[0]
+            : await vscode.window.showQuickPick(names, { placeHolder: 'Select a file template' });
+    if (!chosen) return;
+
+    const content = await execute<string>('interpolateFileTemplate', [uri.toString(), templates![chosen]]);
+    if (!content || typeof content !== 'string') return;
+
+    const editor = await vscode.window.showTextDocument(document);
+    // `|` marks the caret in a template; `$0` is how a snippet spells that.
+    await editor.insertSnippet(new vscode.SnippetString(content.replace('|', '$0')));
+    await vscode.commands.executeCommand('editor.action.formatDocument');
 }
 
 // --- housekeeping ----------------------------------------------------------------------------

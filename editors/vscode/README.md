@@ -40,9 +40,19 @@ server, and only one can hold the workspace index. The extension warns about thi
 | Server trace | ✅ `kotlinLspDev.trace.server` |
 | Extra JVM args | ✅ `kotlinLspDev.additionalJvmArgs` |
 | Build tool selection | ✅ `kotlinLspDev.buildTool` |
+| File templates for new files | ✅ `kotlinLspDev.templates`, interpolated by the server |
 | Attach to a running server by port | ✅ `kotlinLspDev.serverPort` |
+| Smart typing (tree-sitter Enter/bracket handling) | ❌ see below |
+| Database / data-source integration | ❌ needs the Database extension; unrelated to Kotlin support |
 | Download/remove a bundled server | ❌ out of scope — `install.sh` owns the server |
 | JDK discovery for symbol resolution | ❌ out of scope — the install bundles its runtime |
+
+**Not ported: the tree-sitter key handler.** The official extension replaces VS Code's
+indentation wholesale with ~2,200 lines driven by a `web-tree-sitter` Kotlin grammar, which is why
+it sets `editor.autoIndent: "none"`. Here indentation comes from a normal `language-configuration`
+with indentation and on-enter rules, so `editor.autoIndent` stays `"full"` — copying their default
+without their handler would leave you with no automatic indentation at all. Raw-string trim
+margins and list alignment are the cases their handler does better.
 
 **Not bundled: a TextMate grammar.** The official extension ships one, but its directory is
 licensed for use rather than reuse, so it cannot be copied here. Colouring therefore comes from
