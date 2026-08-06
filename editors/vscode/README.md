@@ -40,12 +40,19 @@ server, and only one can hold the workspace index. The extension warns about thi
 | Server trace | ✅ `kotlinLspDev.trace.server` |
 | Extra JVM args | ✅ `kotlinLspDev.additionalJvmArgs` |
 | Build tool selection | ✅ `kotlinLspDev.buildTool` |
-| File templates for new files | ✅ `kotlinLspDev.templates`, interpolated by the server |
+| File templates for new files | ⚠️ implemented, unverified — see below |
 | Attach to a running server by port | ✅ `kotlinLspDev.serverPort` |
 | Smart typing (tree-sitter Enter/bracket handling) | ❌ see below |
 | Database / data-source integration | ❌ needs the Database extension; unrelated to Kotlin support |
 | Download/remove a bundled server | ❌ out of scope — `install.sh` owns the server |
 | JDK discovery for symbol resolution | ❌ out of scope — the install bundles its runtime |
+
+**File templates are implemented but unverified.** New empty files are offered the templates
+configured in `kotlinLspDev.templates`, and the chosen one is interpolated by the server's
+`interpolateFileTemplate` — the same call the official extension makes, with the same arguments.
+That command returned `null` for every template and file tried in a synthetic workspace, so the
+path has never been seen to produce content. It degrades to doing nothing, and the contract check
+asserts the command still exists, but treat it as untested until it fills a real file.
 
 **Not ported: the tree-sitter key handler.** The official extension replaces VS Code's
 indentation wholesale with ~2,200 lines driven by a `web-tree-sitter` Kotlin grammar, which is why

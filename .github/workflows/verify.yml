@@ -133,6 +133,12 @@ jobs:
       - name: Run the suite over the TCP transport
         run: ./scripts/smoke-test.py build/smoke-server --socket
 
+      # The VS Code client calls server commands and reads fields out of their results. Nothing
+      # else checks those assumptions, and when one is wrong the client does not fail loudly --
+      # it quietly does nothing, which reads as a server bug from the editor.
+      - name: Check the VS Code client's server contract
+        run: ./scripts/check-client-contract.py build/smoke-server
+
       # Negative control. build/dist/kotlin-server-<v> is the pristine download -- the copy above
       # was made before install-overlay.sh touched anything. Every check must FAIL there: one that
       # passes is asserting something the stock server already does, and would keep passing if the
