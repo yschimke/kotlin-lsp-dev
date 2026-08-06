@@ -159,10 +159,24 @@ object KotlinLspServer {
             // line off stdout to learn which port to dial.
             println("Server is listening on $LOOPBACK:${server.localPort}")
             System.out.flush()
-            server.accept().use { socket ->
-                socket.tcpNoDelay = true
-                serve(socket.getInputStream(), socket.getOutputStream(), launcher, childArgs)
-            }
+
+            // An ephemeral port means someone spawned us for one session and will read the port
+            // off stdout -- the bundled-launcher contract -- so exit with that session. A fixed
+            // port means the operator started us to attach to, and an editor reload should not
+            // leave them with a dead port and a confusing "nothing is listening" error.
+            do {
+                server.accept().use { socket ->
+                    socket.tcpNoDelay = true
+                    Log.line("accept", "client", "connected on ${socket.inetAddress.hostAddress}")
+                    // A client disconnecting must not take the listener down with it; the next
+                    // one gets a fresh child, because LSP state is per-session and a child that
+                    // has already been initialized cannot be handed to a second client.
+                    runCatching {
+                        serve(socket.getInputStream(), socket.getOutputStream(), launcher, childArgs)
+                    }.onFailure { Log.line("session", "ended", it.message ?: it::class.java.simpleName) }
+                }
+                if (port != 0) Log.line("listen", "waiting", "for the next client on port $port")
+            } while (port != 0)
         }
     }
 
