@@ -51,13 +51,17 @@ def check(lsp, uri):
     if "Shape" not in names:
         raise AssertionError("supertypes of Base = %s, expected to contain Shape" % names)
 
+    # `JavaCircle` is a Java subclass shipped in smoke/project/. Requiring it here is what
+    # actually exercises the light-class path the core takes -- a Kotlin-only fixture would pass
+    # even if that path were broken.
     names = []
     for _ in lsp.poll(INDEX_TIMEOUT):
         subtypes = lsp.request("typeHierarchy/subtypes", {"item": base}) or []
         names = sorted(item["name"] for item in subtypes)
-        if "Circle" in names:
+        if "Circle" in names and "JavaCircle" in names:
             break
-    if "Circle" not in names:
-        raise AssertionError("subtypes of Base = %s after %ds, expected to contain Circle"
-                             % (names, INDEX_TIMEOUT))
-    return "prepare→Base, supertypes⊇[Shape], subtypes⊇[Circle]"
+    missing = [n for n in ("Circle", "JavaCircle") if n not in names]
+    if missing:
+        raise AssertionError("subtypes of Base = %s after %ds, missing %s"
+                             % (names, INDEX_TIMEOUT, missing))
+    return "prepare→Base, supertypes⊇[Shape], subtypes⊇[Circle, JavaCircle (cross-file, Java)]"

@@ -38,6 +38,7 @@ were caught by hand; this makes it a harness property instead.
 import importlib.util
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -342,12 +343,23 @@ def main():
             fh.write(module.FIXTURE)
         uris[name] = "file://" + path
 
+        # A feature may ship extra workspace files under smoke/project/, copied in with their
+        # relative paths preserved. FIXTURE alone is a single Kotlin file, which cannot express
+        # what several features actually need to be tested on -- a Java subclass of a Kotlin type,
+        # a cross-file reference, a second package. Names must not collide with another feature's,
+        # since the combined run shares one workspace; prefix them with the feature name.
+        project = os.path.join(FEATURES_DIR, name, "smoke", "project")
+        if os.path.isdir(project):
+            shutil.copytree(project, root, dirs_exist_ok=True)
+
     print("[smoke] server:    %s" % server_dir)
     print("[smoke] workspace: %s" % root)
     print("[smoke] features:  %s" % ", ".join(name for name, _ in features))
 
     root_uri = "file://" + root
     lsp = Server(server_dir, root, transport, launcher_name)
+    lsp.root = root
+    lsp.root_uri = root_uri
     started = time.time()
     failures = []
     try:

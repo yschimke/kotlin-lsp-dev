@@ -115,6 +115,7 @@ Create `overlay/features/<name>/` with:
 | `ext/com/jetbrains/ls/api/features/impl/kotlin/<area>/LSKotlin<X>Provider.kt` | LSP adapter. Written in the *upstream* package so the file is submittable verbatim. |
 | `ext/overlay/<name>/<X>ServerExtension.kt` | `LanguageServerExtension` returning `LSConfigurationPiece(entries = listOf(<provider>))`. |
 | `resources/META-INF/services/com.jetbrains.ls.api.features.LanguageServerExtension` | The extension FQN. |
+| `smoke/project/` (optional) | Extra workspace files (multi-file, Java, second package), copied in with relative paths preserved. Prefix names with the feature — the combined run shares one workspace. |
 | `README.md` | Status, upstream target paths, tracking link, draft PR body. |
 | `PR_ONLY` (optional) | Marker file — `build-server.sh` skips the feature. |
 

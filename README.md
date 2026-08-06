@@ -232,6 +232,13 @@ content one.
 workspace, starts the server once, and runs each check against its own file. `--expect=<names>`
 narrows the run.
 
+A feature needing more than one file ships `smoke/project/`, whose contents are copied into the
+workspace with relative paths preserved. `FIXTURE` alone is a single Kotlin file, which cannot
+express what some features actually need: `type-hierarchy` uses this to put a **Java** subclass of
+its Kotlin type in the workspace, which is the case its core goes through light classes to support
+and which a Kotlin-only fixture would pass even if that path were broken. The combined run shares
+one workspace, so prefix these files with the feature name to avoid collisions.
+
 CI runs the suite four ways. The default combined run proves all extensions and proxy repairs
 coexist in one server. `--each` starts a fresh server and workspace for every feature, proving
 each check passes independently and making registration or order-dependent failures easier to
