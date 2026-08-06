@@ -75,6 +75,9 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Region folding** (`//region`…`//endregion`) — enhancement | ✅ runnable | unit tests + CI smoke test (folds merge with built-in) |
 | **Convert to expression body** — enhancement (code action) | ✅ runnable | unit tests + CI smoke test (action + edit, merged with built-ins) |
 | **Extract variable** — new (code action) | ✅ runnable | unit tests + CI smoke test (direct declaration + replacement edit) |
+| **Extract function** — new (code action) | ✅ runnable | unit tests + CI smoke test (signature, substituted call, statements moved) |
+| **Inline variable** — new (code action) | ✅ runnable | unit tests + CI smoke test (applied edits compared to expected source) |
+| **Named call arguments** — new ([#175](https://github.com/Kotlin/kotlin-lsp/issues/175)) | ✅ runnable | unit tests + CI smoke test (add names + fill placeholders) |
 | **Unused-import diagnostics** — enhancement ([#201](https://github.com/Kotlin/kotlin-lsp/issues/201)) | ✅ runnable | unit tests + CI smoke test (warning + `Unnecessary` tag) |
 | **Workspace commands** — doctor, stack traces, dependency search, FQN | ✅ runnable | unit tests + CI smoke test (all four commands) |
 | **Implement/override members** — declaration-generation code actions | ✅ runnable | unit tests + CI smoke test (direct implementation edit) |

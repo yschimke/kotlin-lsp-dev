@@ -42,8 +42,9 @@ For this overlay, however, only additive requests (plus the empty type-hierarchy
    the existing organize-imports action as the repair path.
 2. **Implement/override members action — implemented as a separate PR.** It offers distinct actions
    for required and optional members, without touching forbidden completion dispatch.
-3. **Fill named arguments action — implemented as a separate PR.** It generates `name = TODO()`
-   placeholders for unambiguous empty calls and conservatively declines overloads.
+3. **Fill named arguments action — see the 2026-08-06 update.** This entry claimed the action was
+   implemented in a separate PR. No such code ever existed in the repository. It is implemented
+   now, and works differently than described here.
 4. **Missing `when` branches quick fix — already built in.** A live stock-server audit returned
    `NO_ELSE_IN_WHEN` plus `Add else branch`, `Add remaining branches`, and
    `Add remaining branches with * import`; another provider would only duplicate working actions.
@@ -97,3 +98,35 @@ easy and would be the wrong thing to ship, because a client that trusts the adve
 would show wrong selections rather than none. Unanswered, and worth answering deliberately.
 
 See "When a feature cannot be a provider" in AGENTS.md for the three tiers this now implies.
+
+## Update, 2026-08-06 (second pass) — the extract/inline cluster is complete
+
+[Issue #3](https://github.com/yschimke/kotlin-lsp-dev/issues/3) listed three refactorings. All
+three now ship, all live-verified:
+
+| Feature | Notes |
+|---|---|
+| extract variable | shipped earlier |
+| **inline variable** | uses real reference resolution, so shadowing and same-named symbols behave; parenthesises non-atomic initialisers so `val x = a + b` used as `x * 2` cannot silently become `a + b * 2` |
+| **extract function** | narrow by design — a contiguous statement run, `Unit`-valued, no escaping control flow, no writes to captured variables. Every decline is a case where the result would be *wrong*, not merely unpolished |
+
+**Item 3 above was false.** It stated that a fill-named-arguments action had been "implemented as
+a separate PR". Nothing of the kind existed anywhere in the repository — no feature directory, no
+tests, no history. It is implemented now
+([named-arguments](../overlay/features/named-arguments/)), as two actions rather than one: add
+names to existing positional arguments, and fill an empty call with `name = TODO()` placeholders,
+which is what upstream #175 actually asked for.
+
+Its "conservatively declines overloads" plan also turned out to be wrong in a useful way. An
+overload set is not automatically ambiguous: `g(1)` resolves to `g(a: Int)` and `g("s")` to
+`g(b: String)`. Using the overload that actually resolved is both simpler and more useful than
+refusing them wholesale; only a genuinely unresolvable callee is declined.
+
+**A harness limitation worth recording.** Neither the Gradle test fixture nor the smoke workspace
+resolves Kotlin *builtin* types, so an inferred `Int` comes back as an error type in both. This is
+why extract-function prefers the type the user wrote over an inferred one — which is better
+behaviour anyway, since it preserves their spelling, type aliases and nullability — and why its
+smoke fixture asserts a written generic type. A workspace-level fix was attempted (adding
+kotlin-stdlib as a library to the smoke `workspace.json`) and did not change the outcome, so it
+was reverted rather than left in as dead configuration. Anything needing inferred builtin types
+remains under-tested here.
