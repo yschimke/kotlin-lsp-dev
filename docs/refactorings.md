@@ -17,8 +17,8 @@ usage. "Built-in" means the shipped server provides it and we add nothing.
 | 8 | **Inline function** | ✅ overlay | [inline-function](../overlay/features/inline-function/) |
 | 9 | **Extract constant** | ✅ overlay | [extract-constant](../overlay/features/extract-constant/) |
 | 10 | **Safe delete** | ✅ overlay | [safe-delete](../overlay/features/safe-delete/) |
-| — | Change signature | ⬜ see below | — |
-| — | Introduce parameter | ⬜ see below | — |
+| — | **Change signature** (remove unused parameter) | ✅ overlay | [change-signature](../overlay/features/change-signature/) |
+| — | **Introduce parameter** | ✅ overlay | [change-signature](../overlay/features/change-signature/) |
 | — | Pull up / push down members | ⬜ not planned | — |
 
 Also shipped and adjacent, though not usually counted as refactorings: fill named call arguments,
@@ -45,14 +45,17 @@ Both are genuinely useful and both want a dialog — which parameter, what name,
 to do at each call site. A code action has no way to ask, and LSP has no counter-offer beyond
 `showMessageRequest`.
 
-That does not rule them out, but it narrows them to the variants with one obvious answer:
+That does not rule them out, and both now ship in the narrowed form where **nothing has to be
+chosen**:
 
-- **Remove unused parameter** — no question to ask; the parameter is unused and every call site
-  drops the matching argument.
-- **Add parameter with a default** — call sites need no edit at all.
+- **Remove unused parameter** — the parameter is unused, so every call site drops the matching
+  argument. No question to ask.
+- **Introduce parameter** — each call site passes the expression that was already there.
 
-The open-ended forms are better left to the day the protocol or the client can carry a form.
-Shipping a guessing version of change-signature would be worse than not shipping it.
+Names and positions are defaulted, because those are cosmetic and a rename afterwards is cheap.
+The open-ended forms — reordering, retyping, choosing per-caller values — stay unbuilt until the
+client can carry a form. A version guessing the parts with real consequences would be worse than
+none.
 
 ## Why not just wrap IntelliJ's refactoring actions wholesale
 
