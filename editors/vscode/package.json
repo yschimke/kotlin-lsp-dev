@@ -323,7 +323,8 @@
   },
   "scripts": {
     "compile": "tsc -p ./",
-    "watch": "tsc -w -p ./"
+    "watch": "tsc -w -p ./",
+    "test": "tsc -p ./ && node --test test/*.test.mjs"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

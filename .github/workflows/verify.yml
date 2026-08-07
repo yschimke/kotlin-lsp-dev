@@ -133,6 +133,14 @@ jobs:
       - name: Run the suite over the TCP transport
         run: ./scripts/smoke-test.py build/smoke-server --socket
 
+      # The client's JUnit parser decides what the Testing panel shows; it is pure and fast, so
+      # there is no reason for it to be unverified.
+      - name: VS Code client unit tests
+        run: |
+          cd editors/vscode
+          npm install --no-audit --no-fund
+          npm test
+
       # The VS Code client calls server commands and reads fields out of their results. Nothing
       # else checks those assumptions, and when one is wrong the client does not fail loudly --
       # it quietly does nothing, which reads as a server bug from the editor.

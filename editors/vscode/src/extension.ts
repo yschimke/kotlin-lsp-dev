@@ -17,6 +17,7 @@ import {
     StreamInfo,
     TransportKind,
 } from 'vscode-languageclient/node';
+import { registerTestExplorer } from './testExplorer';
 
 /**
  * A client for the enhanced Kotlin server built by kotlin-lsp-dev.
@@ -69,6 +70,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.commands.registerCommand('kotlinLspDev.runTest', runTest),
     );
 
+    registerTestExplorer(context, output);
     registerStackTraceLinks(context);
     registerDecompiledSources(context);
     registerDebugging(context);

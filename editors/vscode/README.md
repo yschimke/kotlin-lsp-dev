@@ -104,6 +104,7 @@ any Kotlin grammar extension alongside restores instant colouring; nothing else 
 | **Editor context menu** | Copy fully-qualified name. |
 | **Status bar** | Indexing state, driven by the server's own readiness signal. |
 | **Debugger** | Breakpoints, launch and attach, via the server's debug adapter. |
+| **Testing panel** | Kotlin tests discovered and runnable, with per-test results. |
 
 The run lens carries `pkg.Class.method`, not a bare method name: `--tests` needs the test named
 precisely, and a run button that quietly runs the whole suite is worse than one that does nothing.
@@ -160,13 +161,29 @@ the process you started:
 KOTLIN_LSP_DEV_LOG=verbose ~/.local/share/kotlin-lsp-enhanced/bin/enhanced-server --socket 9999
 ```
 
-## Build
+## Testing panel
+
+Tests appear in VS Code's Testing view, run individually or in groups, and report per-test results.
+
+Discovery reuses what the server already publishes rather than adding an API: the code-vision
+**▶ Run test** lens carries a runnable id and the range of the test's name, so asking the editor
+for a file's code lenses *is* test discovery — over a path the smoke suite already covers.
+
+Results come from Gradle's JUnit XML, not the exit code. One run covering several tests has a
+single exit code, so scoring from it would mark every selected test failed when one failed, and the
+panel would point at the wrong test. That is worse than not reporting.
+
+## Build and test
 
 ```sh
 cd editors/vscode
 npm install
 npm run compile
+npm test        # parser tests, including a cross-check against real Gradle reports
 ```
+
+The JUnit parser lives in `src/junit.ts` with no `vscode` import, which is what makes it testable
+outside an editor — the same reason each overlay feature keeps its computation free of LSP types.
 
 ## Borrowing from
 
