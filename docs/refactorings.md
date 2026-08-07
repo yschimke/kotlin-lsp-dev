@@ -44,7 +44,13 @@ early rename (index cold):  2 changes, Widget.kt only
 after ready-for-test:       Widget.kt + UseIt.kt + file rename
 ```
 
-The VS Code client shows index state in the status bar for exactly this reason.
+The VS Code client shows index state in the status bar for exactly this reason, and **now blocks
+rename until the index is ready** rather than only displaying the state — offering to wait, or to
+rename anyway for a change known to be local to one file. See "Rename waits for the index" in
+[the client README](../editors/vscode/README.md).
+
+The guard is client-side. A server-side one would cover every editor, but LSP gives a server no way
+to ask a question mid-request: it could only refuse, with no way to override.
 
 ## What is deliberately not built
 

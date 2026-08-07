@@ -144,6 +144,34 @@ An import failure is also surfaced as an error, not left in a log — when the i
 are no modules and no index, and every feature then looks individually broken for one shared
 reason.
 
+### Rename waits for the index
+
+Rename is the one operation that is *blocked* rather than merely warned about, because it is the
+one that fails silently. Before the index is complete it does not error — it succeeds partially:
+
+```
+early rename (index cold):  2 changes, Widget.kt only
+after ready-for-test:       Widget.kt + UseIt.kt + file rename
+```
+
+The declaration is renamed, usages in other files are missed, and nothing reports a problem. The
+result is a project that no longer compiles, from an operation that looked like it worked. Every
+other index-backed feature degrades *visibly* — a missing completion or an empty peek view is
+obviously incomplete — which is why rename gets a guard and they get a warning.
+
+Renaming while indexing offers **Wait for indexing** (with a cancellable progress notification) or
+**Rename anyway**, which stays available for a change known to be local to one file. Waiting is the
+default: the request was fine, only the timing was wrong.
+
+The prompt appears after you confirm the new name, not when you press F2. `263.2689.0` advertises
+`renameProvider: true` with no `prepareProvider`, so the editor never sends
+`textDocument/prepareRename` and the earlier hook cannot fire. It is wired up anyway, so the guard
+moves to the better moment on its own if a release adds prepare support.
+
+This lives in the client, so it guards VS Code and not other editors. Doing it in the composition
+server would cover every editor, but LSP has no way to ask a question mid-request — the server
+could only refuse, with no way to override.
+
 ## One server per project
 
 The workspace index lives in a cache keyed by workspace and is **locked** by whichever server

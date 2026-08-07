@@ -282,6 +282,23 @@ function clientOptions(): LanguageClientOptions {
         progressOnInitialization: true,
         initializationOptions: anyBuildToolConfigured ? { buildTools } : undefined,
         middleware: {
+            // Guarded at `prepareRename` as well as at the edit: this is what F2 asks first, so
+            // the warning arrives before a new name has been typed rather than after.
+            // Inert on `263.2689.0`, which advertises `renameProvider: true` with no
+            // `prepareProvider` -- the editor therefore never sends `textDocument/prepareRename`.
+            // Kept so the guard still fires at the earlier, better moment on a release that adds
+            // it; `provideRenameEdits` below is what actually guards today.
+            prepareRename: async (document, position, token, next) => {
+                // Declining throws rather than returning null: null makes the editor report "this
+                // element can't be renamed", which blames the symbol for a timing problem.
+                if (!(await ensureIndexedForRename())) throw new Error(RENAME_NOT_INDEXED);
+                return next(document, position, token);
+            },
+            // The request that actually produces the partial edit, and the guard that matters.
+            provideRenameEdits: async (document, position, newName, token, next) => {
+                if (!(await ensureIndexedForRename())) throw new Error(RENAME_NOT_INDEXED);
+                return next(document, position, newName, token);
+            },
             // A hint part pointing into a jar cannot be opened as a location by the editor, so
             // swap it for a command that routes through the decompiler. Same fix the official
             // extension makes; without it, clicking a type hint on a library symbol does nothing.
@@ -345,6 +362,8 @@ function registerNotifications(): void {
     // anywhere. Surfacing it is the difference between a confusing result and an obvious one.
     client.onNotification('intellij/ready-for-test', () => {
         indexed = true;
+        waitingForIndex.forEach((resolve) => resolve());
+        waitingForIndex.length = 0;
         setStatus('$(check) Kotlin', 'Workspace indexed — index-backed results are complete');
         // The tree asked for modules before the import finished and was told there were none;
         // without this it keeps saying so until something makes the user press refresh.
@@ -447,6 +466,67 @@ async function execute<T>(command: string, args: unknown[], quiet = false): Prom
 /** For background callers: same commands, no notifications. */
 const executeQuietly: ExecuteCommand = <T>(command: string, args: unknown[]) =>
     execute<T>(command, args, true);
+
+// --- rename against a cold index ---------------------------------------------------------------
+
+/** Resolvers waiting for `intellij/ready-for-test`. */
+const waitingForIndex: (() => void)[] = [];
+
+const RENAME_NOT_INDEXED =
+    'Rename cancelled: the workspace is still indexing, so usages in other files would be missed.';
+
+/** How long to wait for the index before offering to give up. Indexing a large project is slow. */
+const INDEX_WAIT_SECONDS = 600;
+
+/**
+ * Blocks a rename until the index is complete, because the failure is silent.
+ *
+ * Before `intellij/ready-for-test`, rename does not fail -- it *succeeds partially*: the
+ * declaration is renamed, usages in other files are missed, and no error is reported anywhere.
+ * Reproduced deliberately:
+ *
+ *     early rename (index cold):  2 changes, Widget.kt only
+ *     after ready-for-test:       Widget.kt + UseIt.kt + file rename
+ *
+ * The result is a project that no longer compiles, from an operation that looked like it worked.
+ * Every other index-backed feature degrades visibly -- a missing completion or an empty peek view
+ * is obviously incomplete -- so rename is the one place worth stopping.
+ *
+ * Waiting is the default rather than refusing: the user asked to rename, and the only thing wrong
+ * is the timing. Renaming anyway stays available for a rename known to be local to one file.
+ */
+async function ensureIndexedForRename(): Promise<boolean> {
+    if (indexed) return true;
+
+    const choice = await vscode.window.showWarningMessage(
+        'The workspace is still indexing. Renaming now updates the declaration but silently misses ' +
+            'usages in other files.',
+        { modal: true },
+        'Wait for indexing',
+        'Rename anyway',
+    );
+    if (choice === 'Rename anyway') return true;
+    if (choice !== 'Wait for indexing') return false;
+
+    return vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Waiting for the Kotlin index', cancellable: true },
+        (_progress, token) =>
+            new Promise<boolean>((resolve) => {
+                if (indexed) return resolve(true);
+                let timer: NodeJS.Timeout;
+                const ready = () => finish(true);
+                const finish = (complete: boolean) => {
+                    clearTimeout(timer);
+                    const at = waitingForIndex.indexOf(ready);
+                    if (at >= 0) waitingForIndex.splice(at, 1);
+                    resolve(complete);
+                };
+                waitingForIndex.push(ready);
+                timer = setTimeout(() => finish(false), INDEX_WAIT_SECONDS * 1000);
+                token.onCancellationRequested(() => finish(false));
+            }),
+    );
+}
 
 /** Warns when an index-backed answer is about to be incomplete rather than merely wrong-looking. */
 function warnIfNotIndexed(what: string): void {
