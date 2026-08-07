@@ -1,28 +1,37 @@
-# Refactoring coverage for JVM projects
+# Refactoring coverage
 
-What a Kotlin developer in VS Code can actually do, against the refactorings that dominate JVM
-usage. "Built-in" means the shipped server provides it and we add nothing.
+The target is the refactorings that appear in **at least two** language servers or IDEs, not just
+Kotlin or JVM ones. Each row names peers that ship it, so "common" is a claim with evidence rather
+than a guess. "Built-in" means the shipped server provides it and we add nothing.
 
-**All ten are supported.** Seven come from this overlay, three from the server.
+**All twenty are supported.** Seventeen come from this overlay, three from the server.
 
-| # | Refactoring | Status | Where it comes from |
+| # | Refactoring | Also in | Status |
 |---|---|---|---|
-| 1 | **Rename symbol** | ✅ built-in | `textDocument/rename`, upstream `LSKotlinRenameProvider` |
-| 2 | **Extract variable** | ✅ overlay | [extract-variable](../overlay/features/extract-variable/) |
-| 3 | **Extract function** | ✅ overlay | [extract-function](../overlay/features/extract-function/) |
-| 4 | **Inline variable** | ✅ overlay | [inline-variable](../overlay/features/inline-variable/) |
-| 5 | **Move file / class** | ✅ overlay | [move-file](../overlay/features/move-file/) |
-| 6 | **Organize imports** | ✅ built-in | `source.organizeImports` |
-| 7 | **Implement / override members** | ✅ overlay | [declaration-generation](../overlay/features/declaration-generation/) |
-| 8 | **Inline function** | ✅ overlay | [inline-function](../overlay/features/inline-function/) |
-| 9 | **Extract constant** | ✅ overlay | [extract-constant](../overlay/features/extract-constant/) |
-| 10 | **Safe delete** | ✅ overlay | [safe-delete](../overlay/features/safe-delete/) |
-| — | **Change signature** (remove unused parameter) | ✅ overlay | [change-signature](../overlay/features/change-signature/) |
-| — | **Introduce parameter** | ✅ overlay | [change-signature](../overlay/features/change-signature/) |
-| — | Pull up / push down members | ⬜ not planned | — |
+| 1 | **Rename symbol** | everywhere | ✅ built-in |
+| 2 | **Extract variable** | rust-analyzer, gopls, clangd, Roslyn, JDT-LS | ✅ [extract-variable](../overlay/features/extract-variable/) |
+| 3 | **Extract function / method** | rust-analyzer, gopls, clangd, Roslyn, JDT-LS | ✅ [extract-function](../overlay/features/extract-function/) |
+| 4 | **Extract constant** | gopls, Roslyn, JDT-LS | ✅ [extract-constant](../overlay/features/extract-constant/) |
+| 5 | **Inline variable** | rust-analyzer, gopls, Roslyn, JDT-LS | ✅ [inline-variable](../overlay/features/inline-variable/) |
+| 6 | **Inline function** | rust-analyzer, Roslyn, JDT-LS | ✅ [inline-function](../overlay/features/inline-function/) |
+| 7 | **Move file / class** | Roslyn, JDT-LS, TypeScript | ✅ [move-file](../overlay/features/move-file/) |
+| 8 | **Safe delete** | Roslyn, JDT-LS | ✅ [safe-delete](../overlay/features/safe-delete/) |
+| 9 | **Remove unused parameter** | Roslyn, JDT-LS, rust-analyzer | ✅ [change-signature](../overlay/features/change-signature/) |
+| 10 | **Introduce parameter** | Roslyn, JDT-LS, rust-analyzer | ✅ [change-signature](../overlay/features/change-signature/) |
+| 11 | **Organize imports** | everywhere | ✅ built-in |
+| 12 | **Implement / override members** | Roslyn, JDT-LS, Metals, clangd | ✅ [declaration-generation](../overlay/features/declaration-generation/) |
+| 13 | **Convert to expression body** | rust-analyzer, Roslyn | ✅ [expression-body](../overlay/features/expression-body/) |
+| 14 | **Convert to block body** | rust-analyzer, Roslyn | ✅ [declaration-actions](../overlay/features/declaration-actions/) |
+| 15 | **Invert `if` condition** | rust-analyzer, Roslyn, IntelliJ, TypeScript | ✅ [conditional-actions](../overlay/features/conditional-actions/) |
+| 16 | **Merge nested `if`** | rust-analyzer, Roslyn | ✅ [conditional-actions](../overlay/features/conditional-actions/) |
+| 17 | **Convert `if`-chain to `when`** | rust-analyzer (`if`→`match`), Roslyn (`if`→`switch`) | ✅ [conditional-actions](../overlay/features/conditional-actions/) |
+| 18 | **Add explicit type annotation** | rust-analyzer, TypeScript, gopls | ✅ [declaration-actions](../overlay/features/declaration-actions/) |
+| 19 | **Split declaration and initialization** | Roslyn, JDT-LS | ✅ [declaration-actions](../overlay/features/declaration-actions/) |
+| 20 | **Flip binary expression** | rust-analyzer, Roslyn | ✅ [declaration-actions](../overlay/features/declaration-actions/) |
 
-Also shipped and adjacent, though not usually counted as refactorings: fill named call arguments,
-convert to expression body, unused-import diagnostics.
+Adjacent and shipped, though not usually counted as refactorings: fill named call arguments,
+unused-import diagnostics, region folding, type hierarchy, code vision, document highlight, range
+formatting.
 
 ## Rename has a sharp edge
 
@@ -35,35 +44,25 @@ early rename (index cold):  2 changes, Widget.kt only
 after ready-for-test:       Widget.kt + UseIt.kt + file rename
 ```
 
-The VS Code client shows index state in the status bar for exactly this reason. It is the strongest
-argument for the "regression watch" test category discussed in issue #8: this is upstream
-behaviour we depend on, and nothing currently guards it.
+The VS Code client shows index state in the status bar for exactly this reason.
 
-## On change signature and introduce parameter
+## What is deliberately not built
 
-Both are genuinely useful and both want a dialog — which parameter, what name, what default, what
-to do at each call site. A code action has no way to ask, and LSP has no counter-offer beyond
-`showMessageRequest`.
+**Open-ended change signature** — reordering parameters, changing types, choosing per-caller
+values. Those need a dialog and LSP has no way to ask. The two variants where nothing has to be
+chosen (rows 9 and 10) ship; guessing the rest would be worse than not shipping.
 
-That does not rule them out, and both now ship in the narrowed form where **nothing has to be
-chosen**:
+**Pull up / push down members** — needs a target-class picker.
 
-- **Remove unused parameter** — the parameter is unused, so every call site drops the matching
-  argument. No question to ask.
-- **Introduce parameter** — each call site passes the expression that was already there.
+**Encapsulate field** — largely meaningless in Kotlin, where properties already are accessors.
 
-Names and positions are defaulted, because those are cosmetic and a rename afterwards is cheap.
-The open-ended forms — reordering, retyping, choosing per-caller values — stay unbuilt until the
-client can carry a form. A version guessing the parts with real consequences would be worse than
-none.
-
-## Why not just wrap IntelliJ's refactoring actions wholesale
+## Why not wrap IntelliJ's refactoring actions wholesale
 
 The platform's refactoring engine is on the classpath and does the hard part — usage search,
-conflict detection, PSI rewriting. Every feature here drives it rather than reimplementing it, and
-`move-file` is the clearest case: the whole feature is a provider plus a processor that sequences
+conflict detection, PSI rewriting. Features here drive it rather than reimplement it, and
+`move-file` is the clearest case: the whole feature is a provider plus a processor sequencing
 `MoveFileHandler`.
 
 What cannot be reused is the *interaction*. IntelliJ's actions assume a dialog, a preview pane and
-a conflicts view. Anything requiring a choice has to be either narrowed to a case with one right
-answer, or left alone.
+a conflicts view. Anything requiring a choice must be narrowed to a case with one right answer, or
+left alone.

@@ -92,6 +92,8 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Extract constant** — new (code action) | ✅ runnable | unit tests + CI smoke test (all occurrences replaced, unrelated literal untouched) |
 | **Safe delete** — new (code action) | ✅ runnable | unit tests + CI smoke test (unused removed, used declaration *not* offered) |
 | **Change signature** — remove unused parameter / introduce parameter | ✅ runnable | unit tests + CI smoke test (cross-file: declaration **and** call sites) |
+| **Conditional actions** — invert `if`, merge nested `if`, `if` chain → `when` | ✅ runnable | unit tests + CI smoke test (applied edits compared to expected source) |
+| **Declaration actions** — block body, explicit type, split declaration, flip binary | ✅ runnable | unit tests + CI smoke test (applied edits compared to expected source) |
 
 **Every feature is runnable as of `263.2689.0`.** Code vision was release-gated for its whole
 life — releases through `262.9593.0` neither advertised `codeLensProvider` nor shipped
