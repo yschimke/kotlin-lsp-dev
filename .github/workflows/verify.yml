@@ -133,8 +133,9 @@ jobs:
       - name: Run the suite over the TCP transport
         run: ./scripts/smoke-test.py build/smoke-server --socket
 
-      # The client's JUnit parser decides what the Testing panel shows; it is pure and fast, so
-      # there is no reason for it to be unverified.
+      # Two pure modules with no editor dependency: the JUnit parser that decides what the
+      # Testing panel shows, and the index gate the rename guard waits on. Both are fast, so there
+      # is no reason for either to be unverified.
       - name: VS Code client unit tests
         run: |
           cd editors/vscode
@@ -148,10 +149,14 @@ jobs:
         run: ./scripts/check-client-contract.py build/smoke-server
 
       # Negative control. build/dist/kotlin-server-<v> is the pristine download -- the copy above
-      # was made before install-overlay.sh touched anything. Every check must FAIL there: one that
-      # passes is asserting something the stock server already does, and would keep passing if the
-      # feature were deleted. This caught a code action that duplicated a shipped built-in.
-      - name: Require every check to fail against an unmodified server
+      # was made before install-overlay.sh touched anything. Every FEATURE check must FAIL there:
+      # one that passes is asserting something the stock server already does, and would keep
+      # passing if the feature were deleted. This caught a code action that duplicated a shipped
+      # built-in.
+      #
+      # Checks under regressions/ are exempt and must PASS here instead -- they watch behaviour the
+      # stock server provides (rename across files), so this run is where they mean the most.
+      - name: Require every feature check to fail against an unmodified server
         run: |
           version="$(grep -E '^kotlinLspVersion=' dist.properties | cut -d= -f2)"
           ./scripts/smoke-test.py "build/dist/kotlin-server-$version" --stock

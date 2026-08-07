@@ -246,11 +246,19 @@ Kotlin file — unshown — before decompiling.
 cd editors/vscode
 npm install
 npm run compile
-npm test        # parser tests, including a cross-check against real Gradle reports
+npm test        # JUnit parser and index-gate tests
 ```
 
-The JUnit parser lives in `src/junit.ts` with no `vscode` import, which is what makes it testable
-outside an editor — the same reason each overlay feature keeps its computation free of LSP types.
+Two modules are deliberately free of any `vscode` import, which is what makes them testable outside
+an editor — the same reason each overlay feature keeps its computation free of LSP types:
+
+- `src/junit.ts` — result parsing, cross-checked against this repo's real Gradle reports
+- `src/indexGate.ts` — the wait-for-index mechanism under the rename guard
+
+The rename *prompt* cannot be tested (it is a modal dialog), but what sits under it can, and that
+is where the risk is: a settle/cleanup race would either hang a rename forever or leave a stale
+waiter behind, neither of which is visible by reading the code. Both test files were checked by
+mutation — breaking the waiter cleanup and releasing only the first waiter each fail them.
 
 ## Borrowing from
 

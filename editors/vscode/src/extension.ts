@@ -18,6 +18,7 @@ import {
     TransportKind,
 } from 'vscode-languageclient/node';
 import { ExecuteCommand, registerDependencyExplorer } from './dependencyExplorer';
+import { IndexGate } from './indexGate';
 import { registerGradleTasks } from './gradleTasks';
 import { registerLanguageModelTools } from './languageModelTools';
 import { registerTestExplorer } from './testExplorer';
@@ -35,8 +36,9 @@ import { registerTestExplorer } from './testExplorer';
 let client: LanguageClient | undefined;
 let status: vscode.StatusBarItem;
 let output: vscode.OutputChannel;
-let indexed = false;
 let overlayPresent = false;
+/** Whether the workspace index is complete, and the way to wait for it. */
+const indexGate = new IndexGate();
 let refreshDependencies: () => void = () => undefined;
 
 const DEFAULT_SERVER_DIR = path.join(os.homedir(), '.local', 'share', 'kotlin-lsp-enhanced');
@@ -147,7 +149,7 @@ async function applyServerCapabilities(): Promise<void> {
 }
 
 async function start(context: vscode.ExtensionContext): Promise<void> {
-    indexed = false;
+    indexGate.reset();
     const configuration = vscode.workspace.getConfiguration('kotlinLspDev');
     const port = configuration.get<number>('serverPort') ?? 0;
     if (port > 0) {
@@ -361,9 +363,7 @@ function registerNotifications(): void {
     // rename can come back with the declaration renamed and every usage missed, with no error
     // anywhere. Surfacing it is the difference between a confusing result and an obvious one.
     client.onNotification('intellij/ready-for-test', () => {
-        indexed = true;
-        waitingForIndex.forEach((resolve) => resolve());
-        waitingForIndex.length = 0;
+        indexGate.markReady();
         setStatus('$(check) Kotlin', 'Workspace indexed — index-backed results are complete');
         // The tree asked for modules before the import finished and was told there were none;
         // without this it keeps saying so until something makes the user press refresh.
@@ -469,9 +469,6 @@ const executeQuietly: ExecuteCommand = <T>(command: string, args: unknown[]) =>
 
 // --- rename against a cold index ---------------------------------------------------------------
 
-/** Resolvers waiting for `intellij/ready-for-test`. */
-const waitingForIndex: (() => void)[] = [];
-
 const RENAME_NOT_INDEXED =
     'Rename cancelled: the workspace is still indexing, so usages in other files would be missed.';
 
@@ -496,7 +493,7 @@ const INDEX_WAIT_SECONDS = 600;
  * is the timing. Renaming anyway stays available for a rename known to be local to one file.
  */
 async function ensureIndexedForRename(): Promise<boolean> {
-    if (indexed) return true;
+    if (indexGate.isReady) return true;
 
     const choice = await vscode.window.showWarningMessage(
         'The workspace is still indexing. Renaming now updates the declaration but silently misses ' +
@@ -508,29 +505,19 @@ async function ensureIndexedForRename(): Promise<boolean> {
     if (choice === 'Rename anyway') return true;
     if (choice !== 'Wait for indexing') return false;
 
-    return vscode.window.withProgress(
+    const ready = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: 'Waiting for the Kotlin index', cancellable: true },
         (_progress, token) =>
-            new Promise<boolean>((resolve) => {
-                if (indexed) return resolve(true);
-                let timer: NodeJS.Timeout;
-                const ready = () => finish(true);
-                const finish = (complete: boolean) => {
-                    clearTimeout(timer);
-                    const at = waitingForIndex.indexOf(ready);
-                    if (at >= 0) waitingForIndex.splice(at, 1);
-                    resolve(complete);
-                };
-                waitingForIndex.push(ready);
-                timer = setTimeout(() => finish(false), INDEX_WAIT_SECONDS * 1000);
-                token.onCancellationRequested(() => finish(false));
-            }),
+            indexGate.wait(INDEX_WAIT_SECONDS * 1000, (abandon) => token.onCancellationRequested(abandon)),
     );
+    // Proceeding on a timeout would reintroduce exactly the partial rename this exists to prevent.
+    if (!ready) output.appendLine('[rename] gave up waiting for the index');
+    return ready;
 }
 
 /** Warns when an index-backed answer is about to be incomplete rather than merely wrong-looking. */
 function warnIfNotIndexed(what: string): void {
-    if (indexed) return;
+    if (indexGate.isReady) return;
     void vscode.window.showWarningMessage(
         `The workspace is still indexing, so ${what} may be incomplete. Wait for the status bar tick.`,
     );
@@ -550,7 +537,7 @@ async function doctor(): Promise<void> {
     const lines: string[] = [];
     lines.push(`Project:  ${report.project}`);
     lines.push(`Healthy:  ${report.healthy ? 'yes' : 'NO'}`);
-    lines.push(`Indexed:  ${indexed ? 'yes' : 'not yet — results may be incomplete'}`);
+    lines.push(`Indexed:  ${indexGate.isReady ? 'yes' : 'not yet — results may be incomplete'}`);
     lines.push(
         `JDK:      ${report.jdk ? `${report.jdk.name} (${report.jdk.home})` : 'NONE — symbol resolution will be broken'}`,
     );

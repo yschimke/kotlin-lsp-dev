@@ -351,6 +351,23 @@ isolate. `--socket` runs the same checks over the TCP transport the VS Code exte
 proving the composition server is a drop-in for the stock launcher rather than a stdio-only
 convenience.
 
+### Regression watches
+
+`regressions/<name>/check.py` uses the same contract as a feature check, for the opposite subject:
+behaviour the **shipped** server provides and this project depends on.
+
+`rename-across-files` is the one that forced the category. Rename is entirely upstream's — nothing
+here implements it — but this project depends on it enough to have built a client-side guard around
+its cold-index behaviour, and nothing would have noticed if a release broke it. The check asserts
+the thing that actually matters: not that rename returned edits, but that it edited the **referring
+file too**. A check counting edits would pass on the broken behaviour, which is the failure being
+watched for.
+
+Regressions are **exempt from the `--stock` inversion** and asserted to pass in both modes. They
+watch the stock server deliberately, so requiring them to fail against it would be backwards. They
+also sit outside `overlay/features/`, which means "things we add" — filing rename there would claim
+we implement it.
+
 ### Harness hygiene
 
 A server start is a process *tree*: the launcher starts a JVM which starts the real

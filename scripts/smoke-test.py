@@ -18,6 +18,12 @@ PR-then-drop property the cores and unit tests have. A feature with no smoke/ di
 simply has no end-to-end coverage, which is the correct state for one that is
 release-gated or non-additive and therefore cannot be served at all.
 
+`regressions/<name>/check.py` uses the same contract for a different purpose: watching
+behaviour the *shipped* server provides and this project depends on. Rename is the case —
+entirely upstream's, depended on heavily enough to have a client-side guard built around
+its cold-index behaviour, and nothing here would have noticed if a release broke it. It
+does not belong under overlay/features, which means "things we add".
+
 Usage: smoke-test.py <server-dir> [--expect=type-hierarchy,... | --each] [--socket] [--stock]
 
 <server-dir> is an unpacked server with the overlay already applied (see
@@ -28,11 +34,15 @@ The default runs every feature together in one server to verify that they compos
 than over stdio.
 
 --stock is the negative control, and inverts the verdict: it drives the *shipped*
-bin/intellij-server on a server with no overlay applied, and requires every check to FAIL.
-A check that passes there is asserting something the stock server already does, so it
-would keep passing if the feature were deleted -- which makes it worthless as evidence
-that the feature works. Two of the original three checks were in exactly that state and
-were caught by hand; this makes it a harness property instead.
+bin/intellij-server on a server with no overlay applied, and requires every feature check
+to FAIL. A check that passes there is asserting something the stock server already does,
+so it would keep passing if the feature were deleted -- which makes it worthless as
+evidence that the feature works. Two of the original three checks were in exactly that
+state and were caught by hand; this makes it a harness property instead.
+
+Regression checks are exempt from that inversion, and asserted to PASS in both modes:
+they watch the stock server on purpose, so requiring them to fail against it would be
+backwards.
 """
 
 import atexit
@@ -50,6 +60,7 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FEATURES_DIR = os.path.join(ROOT, "overlay", "features")
+REGRESSIONS_DIR = os.path.join(ROOT, "regressions")
 
 TIMEOUT = int(os.environ.get("SMOKE_TIMEOUT", "300"))
 # Socket mode has to wait for the child server to boot before the port is announced.
@@ -299,20 +310,45 @@ def _brief(err, limit=90):
     return text if len(text) <= limit else text[:limit - 3] + "..."
 
 
+def _load_check(name, path, regression):
+    spec = importlib.util.spec_from_file_location("smoke_%s" % name.replace("-", "_"), path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for attr in ("FIXTURE", "check"):
+        if not hasattr(module, attr):
+            raise SystemExit("%s defines no %s" % (path, attr))
+    # Where this check's extra workspace files live, and whether --stock inverts its verdict.
+    module.CHECK_DIR = os.path.dirname(path)
+    module.REGRESSION = regression
+    return (name, module)
+
+
 def discover_features():
-    """Every overlay/features/<name>/smoke/check.py, as (name, module) pairs."""
+    """Every overlay/features/<name>/smoke/check.py and regressions/<name>/check.py.
+
+    Two categories, distinguished only by where the check lives:
+
+    **Features** are ours. `--stock` inverts their verdict, because a feature check that passes
+    against an unmodified server is asserting something the shipped server already does.
+
+    **Regressions** watch behaviour the *shipped* server provides and this project relies on.
+    Rename is the case that forced the distinction: it is entirely upstream's, we depend on it
+    heavily enough to have built a guard around its cold-index behaviour, and nothing here would
+    notice if a release broke it. It cannot live under overlay/features -- that directory means
+    "things we add", and putting it there would claim we implement rename. And it cannot be
+    inverted: it is *supposed* to pass on a stock server, so `--stock` asserts exactly that
+    instead.
+    """
     found = []
     for name in sorted(os.listdir(FEATURES_DIR)):
         path = os.path.join(FEATURES_DIR, name, "smoke", "check.py")
-        if not os.path.isfile(path):
-            continue
-        spec = importlib.util.spec_from_file_location("smoke_%s" % name.replace("-", "_"), path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        for attr in ("FIXTURE", "check"):
-            if not hasattr(module, attr):
-                raise SystemExit("%s defines no %s" % (path, attr))
-        found.append((name, module))
+        if os.path.isfile(path):
+            found.append(_load_check(name, path, regression=False))
+    if os.path.isdir(REGRESSIONS_DIR):
+        for name in sorted(os.listdir(REGRESSIONS_DIR)):
+            path = os.path.join(REGRESSIONS_DIR, name, "check.py")
+            if os.path.isfile(path):
+                found.append(_load_check(name, path, regression=True))
     return found
 
 
@@ -349,10 +385,11 @@ def main():
     if os.path.isfile(manifest) and not stock:
         with open(manifest) as fh:
             installed = {line.strip() for line in fh if line.strip()}
-        skipped = [n for n, _ in features if n not in installed]
+        # Regressions watch the shipped server, so they are never "not built into" it.
+        skipped = [n for n, m in features if n not in installed and not m.REGRESSION]
         if skipped:
             print("[smoke] not built into this server, skipping: %s" % ", ".join(sorted(skipped)))
-        features = [(n, m) for n, m in features if n in installed]
+        features = [(n, m) for n, m in features if m.REGRESSION or n in installed]
 
     if not features:
         sys.exit("no feature defines overlay/features/<name>/smoke/check.py")
@@ -429,7 +466,7 @@ def main():
         # what several features actually need to be tested on -- a Java subclass of a Kotlin type,
         # a cross-file reference, a second package. Names must not collide with another feature's,
         # since the combined run shares one workspace; prefix them with the feature name.
-        project = os.path.join(FEATURES_DIR, name, "smoke", "project")
+        project = os.path.join(module.CHECK_DIR, "project")
         if os.path.isdir(project):
             shutil.copytree(project, root, dirs_exist_ok=True)
 
@@ -475,24 +512,35 @@ def main():
         print("[smoke] initialized in %.1fs" % (time.time() - started))
 
         for name, module in features:
+            # A regression watches the shipped server's own behaviour, so it is expected to pass in
+            # both modes; only feature checks have their verdict inverted by --stock.
+            inverted = stock and not module.REGRESSION
+            label = "stock" if stock else "smoke"
             try:
                 detail = module.check(lsp, uris[name])
             except (AssertionError, SmokeError) as err:
-                if stock:
+                if inverted:
                     # Declined by an unmodified server, which is the whole point of this run.
                     print("[stock]   OK   %-16s correctly unavailable: %s" % (name, _brief(err)))
+                elif module.REGRESSION:
+                    # The shipped server stopped doing something this project is built on.
+                    print("[%s]   FAIL %-16s REGRESSION in built-in behaviour: %s"
+                          % (label, name, err))
+                    failures.append(name)
                 else:
                     print("[smoke]   FAIL %-16s %s" % (name, err))
                     failures.append(name)
             except Exception as err:  # noqa: BLE001 - a check crash is a check bug either way
                 print("[%s]   FAIL %-16s check raised %s: %s"
-                      % ("stock" if stock else "smoke", name, type(err).__name__, err))
+                      % (label, name, type(err).__name__, err))
                 failures.append(name)
             else:
-                if stock:
+                if inverted:
                     print("[stock]   FAIL %-16s passed against an unmodified server: %s"
                           % (name, detail))
                     failures.append(name)
+                elif module.REGRESSION:
+                    print("[%s]   PASS %-16s (built-in) %s" % (label, name, detail))
                 else:
                     print("[smoke]   PASS %-16s %s" % (name, detail))
     finally:
