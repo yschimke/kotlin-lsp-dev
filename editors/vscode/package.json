@@ -162,7 +162,7 @@
         "kotlinLspDev.serverPath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Directory of a standalone server installed by `scripts/install.sh`. Empty means `~/.local/share/kotlin-lsp-enhanced`. The server is expected to be self-contained \u2014 this extension neither downloads a distribution nor looks for a JDK."
+          "markdownDescription": "Directory of an unpacked Kotlin language server. Empty means `~/.local/share/kotlin-lsp-enhanced`.\n\nEither works: a server built by `scripts/install.sh` (started via `bin/enhanced-server`, all features), or a **stock kotlin-lsp release** (`bin/intellij-server`), which loses the overlay-only commands and capability repairs but is otherwise fully supported. The extension picks whichever launcher the directory has."
         },
         "kotlinLspDev.serverPort": {
           "type": "number",
@@ -273,18 +273,49 @@
     "menus": {
       "commandPalette": [
         {
+          "command": "kotlinLspDev.doctor",
+          "when": "kotlinLspDev.overlay"
+        },
+        {
+          "command": "kotlinLspDev.analyzeStackTrace",
+          "when": "kotlinLspDev.overlay"
+        },
+        {
+          "command": "kotlinLspDev.findTextInDependencyJars",
+          "when": "kotlinLspDev.overlay"
+        },
+        {
           "command": "kotlinLspDev.copyFullyQualifiedName",
-          "when": "editorLangId == kotlin"
+          "when": "kotlinLspDev.overlay && editorLangId == kotlin"
         },
         {
           "command": "kotlinLspDev.organizeImports",
           "when": "editorLangId == kotlin"
+        },
+        {
+          "command": "kotlinLspDev.exportWorkspaceToJson"
+        },
+        {
+          "command": "kotlinLspDev.reloadWorkspace"
+        },
+        {
+          "command": "kotlinLspDev.restart"
+        },
+        {
+          "command": "kotlinLspDev.clearCachesAndRestart"
+        },
+        {
+          "command": "kotlinLspDev.showFeatures",
+          "when": "kotlinLspDev.overlay"
+        },
+        {
+          "command": "kotlinLspDev.showOutput"
         }
       ],
       "editor/context": [
         {
           "command": "kotlinLspDev.copyFullyQualifiedName",
-          "when": "editorLangId == kotlin",
+          "when": "kotlinLspDev.overlay && editorLangId == kotlin",
           "group": "9_cutcopypaste"
         }
       ]

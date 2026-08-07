@@ -67,7 +67,9 @@ class CodeVisionTest : BasePlatformTestCase() {
             }
             """.trimIndent(),
         )
+        // Qualified, not bare: the run lens passes this to `--tests`, and a bare method name
+        // would select every same-named test in the project -- or none.
         val tests = KotlinCodeVisionComputation.testFunctions(file).map { it.first }.toSet()
-        assertEquals(setOf("shouldWork", "alsoWorks"), tests)
+        assertEquals(setOf("p.MyTest.shouldWork", "p.MyTest.alsoWorks"), tests)
     }
 }

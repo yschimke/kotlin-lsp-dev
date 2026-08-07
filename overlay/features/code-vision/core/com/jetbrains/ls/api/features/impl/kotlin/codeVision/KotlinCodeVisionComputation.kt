@@ -6,6 +6,8 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.searches.ClassInheritorsSearch
 import com.intellij.psi.search.searches.OverridingMethodsSearch
+import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
 import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.psi.util.parentOfType
 import org.jetbrains.kotlin.asJava.toLightClass
@@ -53,9 +55,32 @@ object KotlinCodeVisionComputation {
     }
 
     /** Test functions in [file] (annotated `@Test`), as (name, function) pairs, for a run lens. */
+    /**
+     * Test functions paired with an id a build tool can run: `pkg.Class.method`.
+     *
+     * The bare method name is not enough. A run lens has to name the test precisely enough for
+     * `--tests` to select it, and a lens that runs the wrong test -- or the whole suite -- is
+     * worse than no lens.
+     */
     fun testFunctions(file: PsiFile): List<Pair<String, KtNamedFunction>> =
         file.collectDescendantsOfType<KtNamedFunction> { fn -> fn.isTest() }
-            .mapNotNull { fn -> fn.name?.let { it to fn } }
+            .mapNotNull { fn -> testId(fn)?.let { it to fn } }
+
+    private fun testId(function: KtNamedFunction): String? {
+        val name = function.name ?: return null
+        val owner = function.containingClassOrObject?.fqName?.asString()
+        // A top-level test function lives in the file's facade class, e.g. `MyTestsKt`.
+        val container = owner ?: facadeClassName(function.containingFile as? KtFile) ?: return name
+        return if (container.isEmpty()) name else "$container.$name"
+    }
+
+    /** `pkg/Foo.kt` compiles to `pkg.FooKt`, which is what a build tool needs to select the test. */
+    private fun facadeClassName(file: KtFile?): String? {
+        if (file == null) return null
+        val simple = file.name.removeSuffix(".kt").replaceFirstChar { it.uppercase() } + "Kt"
+        val packageName = file.packageFqName.asString()
+        return if (packageName.isEmpty()) simple else "$packageName.$simple"
+    }
 
     private fun KtNamedFunction.isTest(): Boolean =
         annotationEntries.any { entry ->

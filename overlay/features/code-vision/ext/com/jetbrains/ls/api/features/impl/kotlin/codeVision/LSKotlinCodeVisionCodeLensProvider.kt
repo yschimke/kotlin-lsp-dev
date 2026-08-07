@@ -16,6 +16,7 @@ import com.jetbrains.lsp.protocol.CodeLens
 import com.jetbrains.lsp.protocol.CodeLensParams
 import com.jetbrains.lsp.protocol.Command
 import com.jetbrains.lsp.protocol.Range
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -41,16 +42,23 @@ internal object LSKotlinCodeVisionCodeLensProvider : LSCodeLensProvider {
                 val document = vf.findDocument() ?: return@readAction emptyList()
                 val out = ArrayList<CodeLens>()
 
+                val uri = params.textDocument.uri.uri.toString()
                 for (decl in KotlinCodeVisionComputation.lensableDeclarations(psiFile)) {
                     val range = decl.nameIdentifier?.textRange?.toLspRange(document) ?: continue
                     val refs = KotlinCodeVisionComputation.referenceCount(decl)
-                    if (refs > 0) out += lens(range, plural(refs, "usage", "usages"))
+                    if (refs > 0) {
+                        out += lens(range, plural(refs, "usage", "usages"),
+                            "kotlinLspDev.showReferences", uri, range.start.line, range.start.character)
+                    }
                     val impls = KotlinCodeVisionComputation.implementationCount(decl)
-                    if (impls != null && impls > 0) out += lens(range, plural(impls, "implementation", "implementations"))
+                    if (impls != null && impls > 0) {
+                        out += lens(range, plural(impls, "implementation", "implementations"),
+                            "kotlinLspDev.showImplementations", uri, range.start.line, range.start.character)
+                    }
                 }
-                for ((_, fn) in KotlinCodeVisionComputation.testFunctions(psiFile)) {
+                for ((testId, fn) in KotlinCodeVisionComputation.testFunctions(psiFile)) {
                     val range = fn.nameIdentifier?.textRange?.toLspRange(document) ?: continue
-                    out += lens(range, "▶ Run test")
+                    out += runLens(range, testId, uri)
                 }
                 out
             }
@@ -60,6 +68,25 @@ internal object LSKotlinCodeVisionCodeLensProvider : LSCodeLensProvider {
 
     private fun plural(n: Int, one: String, many: String): String = "$n ${if (n == 1) one else many}"
 
-    // No command target: these are informational lenses, so clicking is a no-op.
-    private fun lens(range: Range, title: String): CodeLens = CodeLens(range, Command(title, ""), null)
+    /**
+     * Lenses carry a command, because one that looks clickable and is not is worse than none --
+     * a "▶ Run test" label that does nothing reads as a broken run button.
+     *
+     * The commands are the client's, not the server's: peeking references and starting a test run
+     * are editor actions. A client that does not register them simply shows an inert label, which
+     * is the old behaviour rather than an error.
+     */
+    private fun lens(range: Range, title: String, command: String, uri: String, line: Int, character: Int): CodeLens =
+        CodeLens(
+            range,
+            Command(title, command, listOf(JsonPrimitive(uri), JsonPrimitive(line), JsonPrimitive(character))),
+            null,
+        )
+
+    private fun runLens(range: Range, testId: String, uri: String): CodeLens =
+        CodeLens(
+            range,
+            Command("▶ Run test", "kotlinLspDev.runTest", listOf(JsonPrimitive(uri), JsonPrimitive(testId))),
+            null,
+        )
 }

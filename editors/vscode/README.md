@@ -4,11 +4,30 @@ A VS Code client for the enhanced Kotlin server this repository builds. It cover
 official *Kotlin by JetBrains* extension does, plus the operations the overlay adds — which are
 unreachable through the official extension, because nothing there invokes them.
 
-## Scope: standalone server only
+## Works with either server
 
-This extension **does not download a server and does not look for a JDK.** It expects a
-self-contained server directory produced by `scripts/install.sh`, which already carries the
-release's own JBR 25.
+Point `kotlinLspDev.serverPath` at any unpacked Kotlin language server. The extension starts
+whichever launcher the directory has and adjusts to what the server actually advertises:
+
+| Server | Launcher | What you get |
+|---|---|---|
+| Built by `scripts/install.sh` | `bin/enhanced-server` | Everything, including the overlay refactorings and commands |
+| **A stock kotlin-lsp release** | `bin/intellij-server` | Everything the release provides; overlay-only commands are hidden |
+
+Nothing is broken in the stock case — decompiled sources, debugging, workspace export, organize
+imports, rename, file templates and the whole built-in feature set work unchanged. What is absent
+is what the overlay adds, and the palette hides those entries rather than offering commands that
+would fail.
+
+The judgement is made from the server's own `initialize` result — whether it advertises any
+`kotlin-lsp.*` command — so it is right regardless of how the server got there, including the
+official extension's bundled copy.
+
+## Scope: no download, no JDK discovery
+
+This extension **does not download a server and does not look for a JDK.** A server built by
+`scripts/install.sh` carries the release's own JBR 25; a stock release you unpack yourself brings
+its own too.
 
 ```sh
 ./scripts/install.sh                        # → ~/.local/share/kotlin-lsp-enhanced
@@ -75,6 +94,21 @@ any Kotlin grammar extension alongside restores instant colouring; nothing else 
 | **Kotlin: Find text in dependency jars** | Greps the classpath jars. |
 | **Kotlin: Copy fully-qualified name** | At the caret. Also on the editor context menu. |
 | **Kotlin: Show enhanced features in this server** | Lists the overlay features actually built in, from the install manifest. |
+
+## Entry points beyond the command palette
+
+| Where | What |
+|---|---|
+| **Code lenses** | `N usages` and `N implementations` open the peek view; **▶ Run test** runs that one test through the Gradle wrapper with `--tests`. |
+| **Terminal** | JVM stack frames — `at pkg.Class.method(File.kt:42)` — become clickable and open the file at the line. |
+| **Editor context menu** | Copy fully-qualified name. |
+| **Status bar** | Indexing state, driven by the server's own readiness signal. |
+| **Debugger** | Breakpoints, launch and attach, via the server's debug adapter. |
+
+The run lens carries `pkg.Class.method`, not a bare method name: `--tests` needs the test named
+precisely, and a run button that quietly runs the whole suite is worse than one that does nothing.
+Which is what these lenses were until now — the server emitted them with no command at all, so
+**▶ Run test** looked exactly like a run button and did nothing.
 
 The overlay's editor features — extract function, inline variable, fill named arguments, type
 hierarchy, code vision, document highlight, range formatting and the rest — need no wiring here.

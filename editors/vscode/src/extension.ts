@@ -32,6 +32,7 @@ let client: LanguageClient | undefined;
 let status: vscode.StatusBarItem;
 let output: vscode.OutputChannel;
 let indexed = false;
+let overlayPresent = false;
 
 const DEFAULT_SERVER_DIR = path.join(os.homedir(), '.local', 'share', 'kotlin-lsp-enhanced');
 /** Schemes the server serves decompiled or bundled sources under. */
@@ -59,8 +60,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // palette. Namespaced rather than reusing the official extension's id, which would
         // collide outright whenever both are enabled.
         vscode.commands.registerCommand('kotlinLspDev.navigateToJarLocation', navigateToJarLocation),
+        // Invoked from code lenses. A lens that looks clickable and does nothing reads as a
+        // broken button, so the server emits these and the client makes them real.
+        vscode.commands.registerCommand('kotlinLspDev.showReferences', (uri: string, line: number, character: number) =>
+            peek(uri, line, character, 'vscode.executeReferenceProvider')),
+        vscode.commands.registerCommand('kotlinLspDev.showImplementations', (uri: string, line: number, character: number) =>
+            peek(uri, line, character, 'vscode.executeImplementationProvider')),
+        vscode.commands.registerCommand('kotlinLspDev.runTest', runTest),
     );
 
+    registerStackTraceLinks(context);
     registerDecompiledSources(context);
     registerDebugging(context);
     registerFileTemplates(context);
@@ -87,6 +96,45 @@ function indexCacheDirectory(context: vscode.ExtensionContext): string | undefin
     return storage ? path.join(storage, 'index-cache') : undefined;
 }
 
+/**
+ * The launcher to start: ours if the directory has one, otherwise the stock release's.
+ *
+ * This is what lets the extension work against a plain kotlin-lsp download. The composition server
+ * adds capability repairs and the locally-answered operations; without it everything else still
+ * works, just with fewer features. Falling back beats refusing to start.
+ */
+function resolveLauncher(directory: string): string | undefined {
+    for (const name of ['enhanced-server', 'intellij-server']) {
+        const candidate = path.join(directory, 'bin', name);
+        if (fs.existsSync(candidate)) return candidate;
+    }
+    return undefined;
+}
+
+/** True when the connected server carries the overlay, judged by what it advertises. */
+function detectOverlay(): boolean {
+    const commands =
+        (client?.initializeResult?.capabilities?.executeCommandProvider?.commands as string[] | undefined) ?? [];
+    return commands.some((command) => command.startsWith('kotlin-lsp.'));
+}
+
+/**
+ * Enables or hides the parts of the UI that only exist with the overlay.
+ *
+ * Judged from the server's own advertised commands rather than from the install layout, because
+ * that is true regardless of how the server got there -- including the official extension's
+ * bundled copy.
+ */
+async function applyServerCapabilities(): Promise<void> {
+    overlayPresent = detectOverlay();
+    await vscode.commands.executeCommand('setContext', 'kotlinLspDev.overlay', overlayPresent);
+    output.appendLine(
+        overlayPresent
+            ? '[server] enhanced server detected: overlay commands available'
+            : '[server] stock kotlin-lsp detected: overlay-only commands are hidden',
+    );
+}
+
 async function start(context: vscode.ExtensionContext): Promise<void> {
     indexed = false;
     const configuration = vscode.workspace.getConfiguration('kotlinLspDev');
@@ -97,11 +145,12 @@ async function start(context: vscode.ExtensionContext): Promise<void> {
     }
 
     const directory = serverDirectory();
-    const launcher = path.join(directory, 'bin', 'enhanced-server');
-    if (!fs.existsSync(launcher)) {
-        setStatus('$(error) Kotlin: no server', `Not found: ${launcher}`);
+    const launcher = resolveLauncher(directory);
+    if (!launcher) {
+        setStatus('$(error) Kotlin: no server', `No server at ${directory}`);
         const choice = await vscode.window.showErrorMessage(
-            `No enhanced Kotlin server at ${directory}. Run scripts/install.sh, or set kotlinLspDev.serverPath.`,
+            `No Kotlin server at ${directory}. Point kotlinLspDev.serverPath at an unpacked ` +
+                `kotlin-lsp release, or run scripts/install.sh for the enhanced one.`,
             'Open settings',
         );
         if (choice === 'Open settings') {
@@ -147,7 +196,11 @@ async function start(context: vscode.ExtensionContext): Promise<void> {
         output.appendLine(`[start] ${error}`);
         return;
     }
-    setStatus('$(sync~spin) Kotlin: indexing', 'Importing and indexing the workspace');
+    await applyServerCapabilities();
+    setStatus(
+        overlayPresent ? '$(sync~spin) Kotlin: indexing' : '$(sync~spin) Kotlin (stock): indexing',
+        'Importing and indexing the workspace',
+    );
 }
 
 /**
@@ -177,6 +230,7 @@ async function startAttached(port: number): Promise<void> {
         if (choice === 'Copy command') await vscode.env.clipboard.writeText(command);
         return;
     }
+    await applyServerCapabilities();
     setStatus('$(plug) Kotlin: attached', `Attached to 127.0.0.1:${port} — indexing`);
 }
 
@@ -348,6 +402,15 @@ async function clearCachesAndRestart(context: vscode.ExtensionContext): Promise<
 async function execute<T>(command: string, args: unknown[]): Promise<T | undefined> {
     if (!client || client.state !== State.Running) {
         vscode.window.showWarningMessage('The Kotlin language server is not running.');
+        return undefined;
+    }
+    // Naming the cause matters: without it this reads as the feature being broken rather than
+    // absent, and the fix (install the enhanced server) is not guessable from a command failure.
+    if (command.startsWith('kotlin-lsp.') && !overlayPresent) {
+        vscode.window.showInformationMessage(
+            'This needs the enhanced server. The one in use is a stock kotlin-lsp release, which ' +
+                'does not provide this command.',
+        );
         return undefined;
     }
     try {
@@ -544,8 +607,11 @@ async function showFeatures(): Promise<void> {
             .map((line) => line.trim())
             .filter(Boolean);
     } catch {
-        vscode.window.showWarningMessage(
-            `No feature manifest at ${manifest}. This server may not have been installed by scripts/install.sh.`,
+        vscode.window.showInformationMessage(
+            overlayPresent
+                ? `No feature manifest at ${manifest}; this server was not installed by scripts/install.sh.`
+                : 'This is a stock kotlin-lsp release, so it carries no overlay features. ' +
+                      'Run scripts/install.sh for the enhanced server.',
         );
         return;
     }
@@ -690,6 +756,113 @@ async function applyTemplate(uri: vscode.Uri): Promise<void> {
     // `|` marks the caret in a template; `$0` is how a snippet spells that.
     await editor.insertSnippet(new vscode.SnippetString(content.replace('|', '$0')));
     await vscode.commands.executeCommand('editor.action.formatDocument');
+}
+
+// --- terminal stack traces ------------------------------------------------------------------
+
+/**
+ * Makes JVM stack frames in the terminal clickable.
+ *
+ * A stack trace is the moment you most want to be in the editor, and it is normally the one place
+ * the editor cannot help: the terminal shows `at pkg.Class.method(File.kt:42)` as plain text. The
+ * frame already names the file and line, so this needs no server round-trip -- it resolves against
+ * the workspace and opens the file at the line.
+ */
+function registerStackTraceLinks(context: vscode.ExtensionContext): void {
+    // `at pkg.Class.method(File.kt:42)` -- capture the file and line inside the parentheses.
+    const frame = /\(([\w$]+\.kts?):(\d+)\)/g;
+
+    const provider: vscode.TerminalLinkProvider<vscode.TerminalLink & { file: string; line: number }> = {
+        provideTerminalLinks(terminalContext) {
+            const links: (vscode.TerminalLink & { file: string; line: number })[] = [];
+            let match: RegExpExecArray | null;
+            frame.lastIndex = 0;
+            while ((match = frame.exec(terminalContext.line)) !== null) {
+                links.push({
+                    startIndex: match.index + 1,
+                    length: match[0].length - 2,
+                    tooltip: `Open ${match[1]}:${match[2]}`,
+                    file: match[1],
+                    line: Number(match[2]),
+                });
+            }
+            return links;
+        },
+        async handleTerminalLink(link) {
+            const found = await vscode.workspace.findFiles(`**/${link.file}`, '**/build/**', 2);
+            if (found.length === 0) {
+                vscode.window.showInformationMessage(`${link.file} is not in this workspace.`);
+                return;
+            }
+            // More than one match means the file name is ambiguous; ask rather than guess wrong.
+            const target =
+                found.length === 1
+                    ? found[0]
+                    : (
+                          await vscode.window.showQuickPick(
+                              found.map((uri) => ({
+                                  label: vscode.workspace.asRelativePath(uri),
+                                  uri,
+                              })),
+                              { title: `Which ${link.file}?` },
+                          )
+                      )?.uri;
+            if (!target) return;
+            await revealLocation(target, { line: Math.max(0, link.line - 1), character: 0 });
+        },
+    };
+    context.subscriptions.push(vscode.window.registerTerminalLinkProvider(provider));
+}
+
+// --- code lens actions ----------------------------------------------------------------------
+
+/** Opens the peek view over whatever the given provider finds, as clicking a lens should. */
+async function peek(uri: string, line: number, character: number, provider: string): Promise<void> {
+    const target = vscode.Uri.parse(uri);
+    const position = new vscode.Position(line, character);
+    const locations =
+        (await vscode.commands.executeCommand<vscode.Location[]>(provider, target, position)) ?? [];
+    if (locations.length === 0) {
+        vscode.window.showInformationMessage('Nothing found.');
+        return;
+    }
+    await vscode.commands.executeCommand(
+        'editor.action.showReferences',
+        target,
+        position,
+        locations,
+    );
+}
+
+/**
+ * Runs a single test through the project's Gradle wrapper.
+ *
+ * `--tests` needs the test named precisely; the server supplies `pkg.Class.method`, because a run
+ * button that quietly runs the whole suite is worse than one that does nothing.
+ */
+async function runTest(uri: string, testId: string): Promise<void> {
+    const target = vscode.Uri.parse(uri);
+    const folder = vscode.workspace.getWorkspaceFolder(target) ?? vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+        vscode.window.showWarningMessage('No workspace folder to run the test in.');
+        return;
+    }
+    const wrapper = process.platform === 'win32' ? 'gradlew.bat' : './gradlew';
+    if (!fs.existsSync(path.join(folder.uri.fsPath, wrapper.replace('./', '')))) {
+        vscode.window.showWarningMessage(
+            `No Gradle wrapper in ${folder.name}, so this test cannot be run from here.`,
+        );
+        return;
+    }
+    const task = new vscode.Task(
+        { type: 'kotlinLspDev', testId },
+        folder,
+        `test ${testId}`,
+        'kotlin-lsp-dev',
+        new vscode.ShellExecution(`${wrapper} test --tests "${testId}"`, { cwd: folder.uri.fsPath }),
+    );
+    task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, clear: true };
+    await vscode.tasks.executeTask(task);
 }
 
 // --- housekeeping ----------------------------------------------------------------------------
