@@ -3,6 +3,8 @@
 What a Kotlin developer in VS Code can actually do, against the refactorings that dominate JVM
 usage. "Built-in" means the shipped server provides it and we add nothing.
 
+**All ten are supported.** Seven come from this overlay, three from the server.
+
 | # | Refactoring | Status | Where it comes from |
 |---|---|---|---|
 | 1 | **Rename symbol** | ✅ built-in | `textDocument/rename`, upstream `LSKotlinRenameProvider` |
@@ -13,8 +15,8 @@ usage. "Built-in" means the shipped server provides it and we add nothing.
 | 6 | **Organize imports** | ✅ built-in | `source.organizeImports` |
 | 7 | **Implement / override members** | ✅ overlay | [declaration-generation](../overlay/features/declaration-generation/) |
 | 8 | **Inline function** | ✅ overlay | [inline-function](../overlay/features/inline-function/) |
-| 9 | **Extract constant** | ⬜ planned | — |
-| 10 | **Safe delete** | ⬜ planned | — |
+| 9 | **Extract constant** | ✅ overlay | [extract-constant](../overlay/features/extract-constant/) |
+| 10 | **Safe delete** | ✅ overlay | [safe-delete](../overlay/features/safe-delete/) |
 | — | Change signature | ⬜ see below | — |
 | — | Introduce parameter | ⬜ see below | — |
 | — | Pull up / push down members | ⬜ not planned | — |

@@ -89,6 +89,8 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Document highlight** (`textDocument/documentHighlight`) — new, proxy-only | ✅ runnable via composition server | CI smoke test (exact highlight positions, decoy excluded) |
 | **Move file** (`workspace/willRenameFiles`) — new | ✅ runnable | CI smoke test (package updated **and** referring file fixed) |
 | **Inline function** — new (code action) | ✅ runnable | unit tests + CI smoke test (applied edit compared to expected source) |
+| **Extract constant** — new (code action) | ✅ runnable | unit tests + CI smoke test (all occurrences replaced, unrelated literal untouched) |
+| **Safe delete** — new (code action) | ✅ runnable | unit tests + CI smoke test (unused removed, used declaration *not* offered) |
 
 **Every feature is runnable as of `263.2689.0`.** Code vision was release-gated for its whole
 life — releases through `262.9593.0` neither advertised `codeLensProvider` nor shipped
