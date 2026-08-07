@@ -40,6 +40,10 @@ esac
 "$ROOT/scripts/check-overlay-guardrails.sh"
 
 "$ROOT/scripts/fetch-dist.sh"
+
+# Fail the build if the release has grown its own implementation of a feature we carry, so a
+# superseded feature is noticed at build time rather than shipping a duplicate provider.
+"$ROOT/scripts/check-superseded.sh"
 "$ROOT/scripts/fetch-kotlinc.sh"
 
 # --- 1. compile each feature independently against the shipped jars --------------------------

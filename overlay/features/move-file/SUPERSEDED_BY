@@ -1,0 +1,7 @@
+# Delete this feature when the release ships its own Kotlin/JVM file-move provider.
+#
+# The distribution already carries the interface (LSMoveFileProvider), the base class that drives
+# it (LSMoveFileProviderBase) and the Kotlin platform handler (K2MoveFilesHandler) -- it registers
+# directories, so the file equivalent is the shape to watch for.
+LSJvmMoveFileProvider
+LSKotlinMoveFileProvider

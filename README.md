@@ -44,6 +44,7 @@ scripts/
   build-server.sh    compile features vs the release → overlay jar (+ local enhanced tarball)
   install-overlay.sh apply the overlay jar and composition-server launcher
   compile-check.sh   type-check the pinned upstream sources vs the release (drift detection)
+  check-superseded.sh   fail the build if a release ships a feature we carry
   smoke-test.py      drive a patched server (stdio or TCP) and assert the features answer
   check-client-contract.py  assert the server still provides what the VS Code client assumes
   probe-capabilities.py print the initialize result a server advertises
@@ -86,6 +87,7 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Closing-brace inlay hints** — enhancement | ✅ runnable | unit tests + CI smoke test (function + class hints, merged with built-ins) |
 | **Range formatting capability** (`textDocument/rangeFormatting`) — repair | ✅ runnable via composition server | CI smoke test (advertised capability + real formatting edits) |
 | **Document highlight** (`textDocument/documentHighlight`) — new, proxy-only | ✅ runnable via composition server | CI smoke test (exact highlight positions, decoy excluded) |
+| **Move file** (`workspace/willRenameFiles`) — new | ✅ runnable | CI smoke test (package updated **and** referring file fixed) |
 
 **Every feature is runnable as of `263.2689.0`.** Code vision was release-gated for its whole
 life — releases through `262.9593.0` neither advertised `codeLensProvider` nor shipped
