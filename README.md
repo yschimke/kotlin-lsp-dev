@@ -137,6 +137,7 @@ cd kotlin-lsp-dev
 ./scripts/install.sh                     # → ~/.local/share/kotlin-lsp-enhanced
 ./scripts/install.sh --to /opt/kotlin-lsp
 ./scripts/install.sh --vscode            # overlay the bundled server of the installed extension
+./scripts/install.sh --version 262.9593.0   # a release other than the repository pin
 ```
 
 The standalone install is self-contained: it restores the release's bundled JBR 25, so the
@@ -144,6 +145,40 @@ server needs no JDK on `PATH`. Verify it end-to-end with:
 
 ```sh
 ./scripts/smoke-test.py ~/.local/share/kotlin-lsp-enhanced
+```
+
+### Which release to run
+
+`--version` exists because the newest release is not always the one that works on *your* project.
+`263.2689.0` fails to import **Kotlin Multiplatform** projects, measured on two — one with an
+Android target and one without:
+
+| Project shape | `262.9593.0` | `263.2689.0` |
+|---|---|---|
+| plain Kotlin/JVM Gradle (this repo) | ok | **ok** |
+| KMP + Compose, **no** Android target | workspace model 94 K | **0 K**, `IdeaKotlinResolvedBinaryDependency` CCE |
+| KMP + Android | workspace model 177 K | **0 K**, same CCE |
+
+The upstream report is [Kotlin/kotlin-lsp#243](https://github.com/Kotlin/kotlin-lsp/issues/243),
+whose title says *Android* — the failing frame is `populateDependenciesForAndroidModule`. But a KMP
+project with no Android target hits it too, so the real scope is **KMP**, and "wait for Android
+support" is the wrong mental model. Reproduced on the stock server, so the overlay does not cause it.
+
+A `0 K` workspace model is the tell: the import does not merely warn, it produces nothing, and then
+every feature looks individually broken for one shared reason.
+
+So: run `263.2689.0` for plain Kotlin/JVM projects, where it works and adds code vision; run
+`262.9593.0` for anything multiplatform. Install both and choose per workspace —
+`kotlinLspDev.serverPath` is an ordinary setting, so `.vscode/settings.json` can select one:
+
+```sh
+./scripts/install.sh --version 262.9593.0                                    # multiplatform
+./scripts/install.sh --version 263.2689.0 --to ~/.local/share/kotlin-lsp-263  # plain JVM
+```
+
+```jsonc
+// .vscode/settings.json in a plain Kotlin/JVM project
+{ "kotlinLspDev.serverPath": "/home/you/.local/share/kotlin-lsp-263" }
 ```
 
 ### Seeing where a request goes
