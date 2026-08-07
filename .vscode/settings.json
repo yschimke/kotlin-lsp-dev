@@ -1,0 +1,13 @@
+{
+  // This repository is a plain Kotlin/JVM Gradle project, so it can run the newest release --
+  // which multiplatform projects currently cannot (see "Which release to run" in README.md).
+  // 263.2689.0 adds code vision (the codeLens-backed usage/implementation/run-test lenses).
+  //
+  // Installed with:
+  //   ./scripts/install.sh --version 263.2689.0 --to ~/.local/share/kotlin-lsp-263
+  //
+  // The path is absolute because VS Code does not expand ~ in settings. Change it if your
+  // home directory differs; deleting this file falls back to ~/.local/share/kotlin-lsp-enhanced.
+  "kotlinLspDev.serverPath": "/home/yuri/.local/share/kotlin-lsp-263",
+  "kotlinLspDev.log": "routing"
+}

@@ -44,7 +44,15 @@ object LSKotlinCommandDescriptorProvider : LSCommandDescriptorProvider {
                             }
                         }
                     }
-                    put("healthy", ModuleManager.getInstance(project).modules.isNotEmpty() && roots.projectSdk != null)
+                    // Health is about whether the workspace resolves, which means modules with a
+                    // classpath. It deliberately does *not* require a project SDK: a correctly
+                    // imported Gradle project routinely has none -- the JDK comes from module
+                    // SDKs or the bundled runtime -- and requiring it reported a fully populated
+                    // workspace (3 modules, 1085 classpath entries) as unhealthy, which is
+                    // precisely backwards for the command people run when they are confused.
+                    val modules = ModuleManager.getInstance(project).modules
+                    val hasClasspath = modules.any { rootsFor(it, false).isNotEmpty() }
+                    put("healthy", modules.isNotEmpty() && hasClasspath)
                 }
             }
         }
