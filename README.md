@@ -165,7 +165,26 @@ project with no Android target hits it too, so the real scope is **KMP**, and "w
 support" is the wrong mental model. Reproduced on the stock server, so the overlay does not cause it.
 
 A `0 K` workspace model is the tell: the import does not merely warn, it produces nothing, and then
-every feature looks individually broken for one shared reason.
+every feature looks individually broken for one shared reason. Measured with our own doctor command
+on the same KMP project:
+
+| | modules | source roots | classpath entries |
+|---|---|---|---|
+| `262.9593.0`, Gradle import | **16** | 4 | **1831** |
+| `263.2689.0`, Gradle import | 0 | 0 | 0 |
+
+**A workaround was tried and does not work.** 263 restructured Gradle import into a plugin-side
+model unpacked reflectively in the IDE (`ProxyUtil`, `Reflected`, `KotlinCompilationReflection`,
+plus a new `language-server.workspace-import.gradle-plugin.jar`), and the cast fails between the
+proxy's class and the IDE's own copy. It is not a duplicate-jar problem — the class lives in one
+jar, `intellij.kotlin.base.projectModel.jar`, in both releases — so there is nothing to
+de-duplicate and no small patch to apply.
+
+The obvious escape is to skip the Gradle importer: export `workspace.json` from 262 (the server's
+own `exportWorkspace` writes one), then run 263 with `buildTools` set to `""` so the JSON importer
+takes over. That *does* avoid the crash — no Gradle run, no exception, `ready-for-test` arrives —
+but the doctor still reports **0 modules and 0 classpath entries**. It is quieter, not better, and
+a quiet empty workspace is worse than a loud one. Stay on `262.9593.0` for multiplatform.
 
 So: run `263.2689.0` for plain Kotlin/JVM projects, where it works and adds code vision; run
 `262.9593.0` for anything multiplatform. Install both and choose per workspace —

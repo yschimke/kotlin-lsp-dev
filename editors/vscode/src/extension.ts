@@ -195,7 +195,17 @@ function clientOptions(): LanguageClientOptions {
         return text.includes('LOCK') || text.includes('Resource temporarily unavailable');
     };
 
-    const buildTool = vscode.workspace.getConfiguration('kotlinLspDev').get<string | null>('buildTool');
+    // The server expects `buildTools` keyed by workspace-folder URI, not a single value -- a flat
+    // `buildTool` is silently ignored. `""` selects no build tool, which falls back to the JSON
+    // workspace importer; `null` means "any".
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    const buildTools = Object.fromEntries(
+        folders.map((folder) => [
+            folder.uri.toString(),
+            vscode.workspace.getConfiguration('kotlinLspDev', folder.uri).get<string | null>('buildTool') ?? null,
+        ]),
+    );
+    const anyBuildToolConfigured = Object.values(buildTools).some((value) => value !== null);
 
     return {
         documentSelector: [
@@ -205,7 +215,7 @@ function clientOptions(): LanguageClientOptions {
         ],
         outputChannel: output,
         progressOnInitialization: true,
-        initializationOptions: buildTool === null ? undefined : { buildTool },
+        initializationOptions: anyBuildToolConfigured ? { buildTools } : undefined,
         middleware: {
             // A hint part pointing into a jar cannot be opened as a location by the editor, so
             // swap it for a command that routes through the decompiler. Same fix the official
