@@ -16,8 +16,9 @@ editors/vscode/node_modules/
 editors/vscode/out/
 editors/vscode/*.vsix
 
-# Generated when a server is run against this repository as its own workspace
-# (smoke-test.py points user.home / caches inside the workspace).
+# Left by pre-2026-08 harness runs, which put the server's user.home and caches inside the
+# workspace -- destructive when that workspace was a real project. They now go to a temp
+# directory removed on shutdown; these stay ignored so old checkouts do not resurface them.
 .user-home/
 .server-system/
 .xdg/

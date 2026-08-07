@@ -351,6 +351,21 @@ isolate. `--socket` runs the same checks over the TCP transport the VS Code exte
 proving the composition server is a drop-in for the stock launcher rather than a stdio-only
 convenience.
 
+### Harness hygiene
+
+A server start is a process *tree*: the launcher starts a JVM which starts the real
+`intellij-server` as a child. The harness therefore runs the launcher in its own process group and
+signals the group on shutdown — killing only the launcher orphans the child, which is how one
+session accumulated ten stray servers holding ~750 MB and enough CPU to make an unrelated check
+fail intermittently. Cleanup is also registered with `atexit`, so a crash or Ctrl-C does not leak
+the tree either.
+
+The server's `user.home`, XDG caches and system directory go to a temp directory removed on
+shutdown, **never inside the workspace**. They used to live in the workspace, which is harmless for
+a throwaway one and destructive for a real project: pointed at an actual checkout, a run wrote a
+6.4 GB `.user-home` of Gradle caches into the source tree and left it there. A failed run keeps
+them and prints the path, because the server's log lives there.
+
 `--stock` is the **negative control**, and it inverts the verdict: it drives the shipped
 `bin/intellij-server` on a server with no overlay applied and requires every check to *fail*.
 

@@ -35,10 +35,12 @@ that the feature works. Two of the original three checks were in exactly that st
 were caught by hand; this makes it a harness property instead.
 """
 
+import atexit
 import importlib.util
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -52,6 +54,8 @@ FEATURES_DIR = os.path.join(ROOT, "overlay", "features")
 TIMEOUT = int(os.environ.get("SMOKE_TIMEOUT", "300"))
 # Socket mode has to wait for the child server to boot before the port is announced.
 PORT_ANNOUNCE_TIMEOUT = int(os.environ.get("SMOKE_PORT_TIMEOUT", "180"))
+# How long a signalled server process group gets to exit before the next signal.
+CHILD_EXIT_GRACE_SECONDS = 10
 
 # A module definition for the server's JSON workspace importer (upstream's JsonWorkspaceImporter
 # picks up `workspace.json` in the project root). This is what puts the fixtures into a real
@@ -78,26 +82,40 @@ class Server:
     """Minimal LSP client. The object passed to each feature's check()."""
 
     def __init__(self, server_dir, root, transport="stdio", launcher_name="enhanced-server"):
-        system_path = os.path.join(root, ".server-system")
+        # The server's private directories live OUTSIDE the workspace. They used to sit in `root`,
+        # which is fine for a throwaway workspace and destructive for a real one: pointed at an
+        # actual project, a run wrote a 6.4 GB `.user-home` (Gradle caches) and an 846 MB `.xdg`
+        # into the user's source tree, and left them there. Keeping them separate also means they
+        # are cleaned up even when a failed run keeps its workspace for inspection.
+        self.home = tempfile.mkdtemp(prefix="kotlin-lsp-serverhome-")
+        system_path = os.path.join(self.home, "server-system")
         env = os.environ.copy()
         env.update({
-            "XDG_CACHE_HOME": os.path.join(root, ".xdg", "cache"),
-            "XDG_CONFIG_HOME": os.path.join(root, ".xdg", "config"),
-            "XDG_DATA_HOME": os.path.join(root, ".xdg", "data"),
+            "XDG_CACHE_HOME": os.path.join(self.home, "xdg", "cache"),
+            "XDG_CONFIG_HOME": os.path.join(self.home, "xdg", "config"),
+            "XDG_DATA_HOME": os.path.join(self.home, "xdg", "data"),
         })
         java_options = env.get("JAVA_TOOL_OPTIONS", "")
         env["JAVA_TOOL_OPTIONS"] = (
-            java_options + " -Duser.home=" + os.path.join(root, ".user-home")
+            java_options + " -Duser.home=" + os.path.join(self.home, "user-home")
         ).strip()
         launcher = os.path.join(server_dir, "bin", launcher_name)
         # --socket 0 binds an ephemeral port and announces it the way the shipped launcher does;
         # this is the transport the VS Code extension uses, so exercising it end-to-end is what
         # proves the composition server is a drop-in rather than a stdio-only convenience.
         transport_args = ["--stdio"] if transport == "stdio" else ["--socket", "0"]
+        # Own process group, so shutdown can reach the whole tree. The launcher starts a JVM that
+        # starts the real `intellij-server` as a *child*: killing the launcher alone orphans that
+        # child, which is how a session accumulated ten stray servers holding ~750 MB and enough
+        # CPU to make an unrelated check fail intermittently.
         self.proc = subprocess.Popen(
             [launcher] + transport_args + ["--system-path", system_path],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, cwd=root, env=env)
+            stderr=subprocess.PIPE, cwd=root, env=env,
+            start_new_session=True)
+        # A crash, a Ctrl-C or a check that raises before `shutdown()` must not leak the tree
+        # either, so cleanup is registered the moment the process exists.
+        atexit.register(self.shutdown)
         self.next_id = 0
         self.capabilities = {}
         self.stderr_tail = []
@@ -222,13 +240,57 @@ class Server:
             out = out[:start] + replacement + out[end:]
         return out
 
-    def shutdown(self):
+    def shutdown(self, keep_home=False):
+        """Stop the server, its children, and remove its private directories.
+
+        `keep_home` preserves them for inspection -- the server's own log lives there, and a failed
+        run prints its tail, so deleting unconditionally would throw away the only window CI has
+        into what the server was doing.
+
+        Idempotent: it is both called explicitly and registered with atexit.
+        """
+        if getattr(self, "_shut_down", False):
+            return
+        self._shut_down = True
         try:
             self.request("shutdown", None)
             self.notify("exit", None)
             self.proc.wait(timeout=20)
-        except Exception:
-            self.proc.kill()
+        except Exception:  # noqa: BLE001 - the point is to clean up whatever the state is
+            pass
+        finally:
+            self._kill_process_group()
+            if keep_home:
+                print("[smoke] server directories kept for inspection: %s" % self.home)
+            else:
+                shutil.rmtree(self.home, ignore_errors=True)
+
+    def _kill_process_group(self):
+        """Terminate anything still alive in the server's process group.
+
+        `proc.kill()` alone is not enough: it reaps the launcher and leaves the `intellij-server`
+        child it spawned running forever. Signalling the group catches both, and the KILL after the
+        grace period catches a JVM that ignores TERM.
+        """
+        try:
+            group = os.getpgid(self.proc.pid)
+        except (OSError, AttributeError):
+            # No process groups (Windows) or the process is already gone.
+            if self.proc.poll() is None:
+                self.proc.kill()
+            return
+        for signal_number in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(group, signal_number)
+            except ProcessLookupError:
+                return
+            deadline = time.time() + CHILD_EXIT_GRACE_SECONDS
+            while time.time() < deadline:
+                try:
+                    os.killpg(group, 0)
+                except ProcessLookupError:
+                    return
+                time.sleep(0.2)
 
 
 def _brief(err, limit=90):
@@ -340,10 +402,11 @@ def main():
     # One workspace holding every feature's fixture as its own file, so a single server start
     # covers them all. Each check only ever sees the URI of its own fixture.
     workdir = os.environ.get("SMOKE_WORKDIR")
-    # A run leaves a whole workspace index behind -- hundreds of megabytes. On a tmpfs /tmp a
-    # day's runs will fill the filesystem, and the first symptom is unrelated: servers dying
-    # mid-request with broken pipes. Successful runs clean up after themselves; failures keep the
-    # workspace, because that is exactly when you want to look at it.
+    # A run leaves a whole workspace index behind -- ~130 MB here, and the server's own home
+    # directory alongside it. On a tmpfs /tmp a day's runs will fill the filesystem, and the first
+    # symptom is unrelated: servers dying mid-request with broken pipes. Successful runs clean up
+    # after themselves; failures keep both the workspace and the server home, because that is
+    # exactly when you want to look at them.
     ephemeral = workdir is None
     root = (
         os.path.join(workdir, "kotlin-lsp-smoke")
@@ -433,7 +496,9 @@ def main():
                 else:
                     print("[smoke]   PASS %-16s %s" % (name, detail))
     finally:
-        lsp.shutdown()
+        # The server's log lives under its home directory and the failure path below prints its
+        # tail, so a failed run has to keep it.
+        lsp.shutdown(keep_home=bool(failures))
 
     if ephemeral and not failures:
         shutil.rmtree(root, ignore_errors=True)
