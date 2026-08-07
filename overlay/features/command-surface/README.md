@@ -13,10 +13,19 @@ All arguments are JSON values in the `arguments` array of `workspace/executeComm
 | `kotlin-lsp.analyzeStackTrace` | JVM stack trace string | LSP `Location[]` for frames whose source file is in the workspace or dependencies. |
 | `kotlin-lsp.findTextInDependencyJars` | non-empty search string | Up to 100 `{jar, entry, line, text}` matches across dependency jars. |
 | `kotlin-lsp.copyFullyQualifiedName` | document URI string, character offset integer | Fully-qualified name of the enclosing Kotlin declaration, or `null`. |
+| `kotlin-lsp.listJarClasses` | jar path string, optional dotted package | `{packages, classes, truncated}` for **one level** of the jar's package tree. |
 
 The names are deliberately namespaced because command-name collisions fail server startup.
 Malformed arguments return LSP `InvalidParams` errors. Jar search skips entries over 4 MiB and
 unreadable/non-text entries rather than failing the entire search.
+
+`listJarClasses` returns one level per call so a client can expand a dependency lazily: returning a
+whole jar would mean thousands of entries for something the size of kotlin-stdlib, nearly all never
+looked at. It reads entry **names** only and never parses bytecode, which is what keeps expansion
+cheap — and means a jar whose classes cannot be parsed still lists correctly. Inner classes are
+omitted because they navigate to their outer class's source, so listing them doubles the tree
+without adding a destination. Past `limit` classes in one package it sets `truncated` rather than
+quietly returning a short list.
 
 ## Verification
 

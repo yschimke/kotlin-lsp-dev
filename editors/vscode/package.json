@@ -10,11 +10,12 @@
     "directory": "editors/vscode"
   },
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.95.0"
   },
   "categories": [
     "Programming Languages",
-    "Debuggers"
+    "Debuggers",
+    "Testing"
   ],
   "activationEvents": [
     "onLanguage:kotlin",
@@ -54,6 +55,134 @@
     "breakpoints": [
       {
         "language": "kotlin"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "kotlinLspDev.dependencies",
+          "name": "Kotlin project",
+          "when": "kotlinLspDev.overlay"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "kotlinLspDev.dependencies",
+        "contents": "Modules and dependencies appear once the workspace has been imported.\n[Reload workspace](command:kotlinLspDev.reloadWorkspace)\n[Run Doctor](command:kotlinLspDev.doctor)"
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "kotlin-gradle",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Gradle task to run, for example `test` or `:app:assembleDebug`."
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Extra arguments passed to the Gradle wrapper."
+          }
+        }
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "kotlinLspDev-doctor",
+        "displayName": "Kotlin workspace health",
+        "modelDescription": "Reports how the Kotlin/JVM workspace was actually imported by the language server: project name, resolved JDK, modules, their source roots, and their resolved classpath. Use this to check whether a project imported correctly, why a symbol does not resolve, or which dependencies a module really has -- it reports the resolved result, which can differ from what the build files declare.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "kotlinDoctor",
+        "icon": "$(pulse)",
+        "when": "kotlinLspDev.overlay",
+        "tags": [
+          "kotlin",
+          "jvm"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "kotlinLspDev-searchDependencyJars",
+        "displayName": "Search Kotlin dependency jars",
+        "modelDescription": "Searches the text of files inside the dependency jars on the Kotlin workspace classpath, returning jar, entry, line number and matching line. Use this to find a class, resource, service registration or configuration value that exists only inside a dependency and is therefore not in the workspace source.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "kotlinJars",
+        "icon": "$(search)",
+        "when": "kotlinLspDev.overlay",
+        "tags": [
+          "kotlin",
+          "jvm"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Literal text to search for inside the dependency jars."
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "kotlinLspDev.setup",
+        "title": "Set up Kotlin",
+        "description": "Point this extension at a Kotlin language server and check that your project imported.",
+        "steps": [
+          {
+            "id": "install",
+            "title": "Install a server",
+            "description": "This extension does not download anything. Install a server first, then come back.\n[Open the install instructions](https://github.com/yschimke/kotlin-lsp-dev#install)",
+            "media": {
+              "markdown": "walkthroughs/install.md"
+            }
+          },
+          {
+            "id": "configure",
+            "title": "Point the extension at it",
+            "description": "Set the server directory if you installed somewhere other than the default.\n[Open settings](command:kotlinLspDev.openServerPathSetting)",
+            "media": {
+              "markdown": "walkthroughs/configure.md"
+            },
+            "completionEvents": [
+              "onSettingChanged:kotlinLspDev.serverPath",
+              "onCommand:kotlinLspDev.openServerPathSetting"
+            ]
+          },
+          {
+            "id": "import",
+            "title": "Check the import",
+            "description": "Open a Gradle or Maven project and wait for the status bar tick. Until it appears, index-backed results are incomplete.\n[Run Doctor](command:kotlinLspDev.doctor)",
+            "media": {
+              "markdown": "walkthroughs/import.md"
+            },
+            "completionEvents": [
+              "onCommand:kotlinLspDev.doctor"
+            ]
+          },
+          {
+            "id": "explore",
+            "title": "Find the features",
+            "description": "Refactorings, hierarchies, the Testing panel and the project tree.\n[Show enhanced features](command:kotlinLspDev.showFeatures)",
+            "media": {
+              "markdown": "walkthroughs/features.md"
+            }
+          }
+        ]
       }
     ],
     "debuggers": [
@@ -268,6 +397,15 @@
       {
         "command": "kotlinLspDev.showOutput",
         "title": "Kotlin: Show language server output"
+      },
+      {
+        "command": "kotlinLspDev.refreshDependencies",
+        "title": "Kotlin: Refresh project tree",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kotlinLspDev.openServerPathSetting",
+        "title": "Kotlin: Open server path setting"
       }
     ],
     "menus": {
@@ -310,6 +448,20 @@
         },
         {
           "command": "kotlinLspDev.showOutput"
+        },
+        {
+          "command": "kotlinLspDev.refreshDependencies",
+          "when": "kotlinLspDev.overlay"
+        },
+        {
+          "command": "kotlinLspDev.openServerPathSetting"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "kotlinLspDev.refreshDependencies",
+          "when": "view == kotlinLspDev.dependencies",
+          "group": "navigation"
         }
       ],
       "editor/context": [
@@ -331,7 +483,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@types/vscode": "^1.90.0",
+    "@types/vscode": "^1.95.0",
     "typescript": "^5.4.0"
   }
 }

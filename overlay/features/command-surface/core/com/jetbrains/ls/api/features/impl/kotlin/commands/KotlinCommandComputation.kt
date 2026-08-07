@@ -10,6 +10,11 @@ data class JvmStackFrame(val className: String, val methodName: String, val file
 
 data class JarTextMatch(val jar: String, val entry: String, val line: Int, val text: String)
 
+data class JarClass(val name: String, val entry: String)
+
+/** One level of a jar's package tree: the immediate subpackages and the classes directly in it. */
+data class JarListing(val packages: List<String>, val classes: List<JarClass>, val truncated: Boolean)
+
 object KotlinCommandComputation {
     private val stackFrame = Regex("""^\s*at\s+([\w.$]+)\.([\w$<>]+)\(([^:()]+):(\d+)\)\s*$""")
 
@@ -46,6 +51,52 @@ object KotlinCommandComputation {
         }
         return matches
     }
+
+    /**
+     * Lists one level of [jar]'s package tree, so a client can expand a dependency lazily.
+     *
+     * Returning the whole jar at once would mean thousands of entries for something the size of
+     * kotlin-stdlib, nearly all of them never looked at. One level per call keeps the cost
+     * proportional to what is actually expanded.
+     *
+     * Only entry *names* are read; the bytecode is never parsed. That is what makes this cheap, and
+     * it is why a jar of unreadable classes still lists correctly.
+     */
+    fun listJarClasses(jar: Path, packagePrefix: String = "", limit: Int = 500): JarListing {
+        val directory = if (packagePrefix.isEmpty()) "" else packagePrefix.replace('.', '/') + "/"
+        val packages = sortedSetOf<String>()
+        val classes = mutableListOf<JarClass>()
+        var truncated = false
+        runCatching {
+            JarFile(jar.toFile()).use { file ->
+                val entries = file.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (entry.isDirectory) continue
+                    val name = entry.name
+                    if (!name.endsWith(CLASS_SUFFIX) || !name.startsWith(directory)) continue
+                    val rest = name.substring(directory.length)
+                    val separator = rest.indexOf('/')
+                    if (separator >= 0) {
+                        packages += rest.substring(0, separator)
+                        continue
+                    }
+                    val simpleName = rest.removeSuffix(CLASS_SUFFIX)
+                    // An inner class navigates to its outer class's source, so listing it as well
+                    // doubles the tree while adding no destination.
+                    if ('$' in simpleName) continue
+                    if (classes.size >= limit) {
+                        truncated = true
+                        continue
+                    }
+                    classes += JarClass(simpleName, name)
+                }
+            }
+        }
+        return JarListing(packages.toList(), classes.sortedBy { it.name }, truncated)
+    }
+
+    private const val CLASS_SUFFIX = ".class"
 
     private const val MAX_ENTRY_SIZE = 4L * 1024 * 1024
 }

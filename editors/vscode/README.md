@@ -104,7 +104,24 @@ any Kotlin grammar extension alongside restores instant colouring; nothing else 
 | **Editor context menu** | Copy fully-qualified name. |
 | **Status bar** | Indexing state, driven by the server's own readiness signal. |
 | **Debugger** | Breakpoints, launch and attach, via the server's debug adapter. |
-| **Testing panel** | Kotlin tests discovered and runnable, with per-test results. |
+| **Testing panel** | Kotlin tests discovered, runnable and debuggable, with per-test results. |
+| **Kotlin project view** | Explorer sidebar: modules, source roots, dependency jars browsable down to individual classes. |
+| **Call/Type Hierarchy** | Built-in VS Code views, served by the language server — see below. |
+| **Run Task** | Gradle lifecycle tasks (`build`, `assemble`, `check`, `test`, `clean`) for workspaces with a wrapper. |
+| **Chat** | `#kotlinDoctor` and `#kotlinJars` tools, for questions the source alone cannot answer. |
+| **Get Started** | A walkthrough covering install, configuration and checking the import. |
+
+### Hierarchies are already there
+
+`Shift+Alt+H` opens **Call Hierarchy**; the editor context menu has **Show Type Hierarchy**. Both
+are built-in VS Code views that the server feeds directly, so neither needs anything from this
+extension — which is exactly why they are easy to miss. Call hierarchy is the release's own
+(`LSKotlinCallHierarchyProvider`); type hierarchy is one of the overlay features.
+
+Worth checking the *concrete* provider ships and not just the base class before believing a
+capability: `workspace/willRenameFiles` was advertised on `263.2689.0` while answering `null`,
+because only `LSMoveFileProviderBase` was present. That is what `overlay/features/move-file`
+exists to fill.
 
 The run lens carries `pkg.Class.method`, not a bare method name: `--tests` needs the test named
 precisely, and a run button that quietly runs the whole suite is worse than one that does nothing.
@@ -172,6 +189,28 @@ for a file's code lenses *is* test discovery — over a path the smoke suite alr
 Results come from Gradle's JUnit XML, not the exit code. One run covering several tests has a
 single exit code, so scoring from it would mark every selected test failed when one failed, and the
 panel would point at the wrong test. That is worse than not reporting.
+
+The **Debug** profile adds `--debug-jvm`, which suspends the test JVM before the tests run and waits
+on port 5005. The attach therefore has to happen *while* the Gradle task is still going — waiting
+for the task to finish would deadlock, since it cannot finish until a debugger attaches.
+
+## Kotlin project view
+
+Modules, their source roots, and their dependencies, in the Explorer sidebar. Expanding a jar walks
+its package tree and opens any class as decompiled source.
+
+Every part already existed: `kotlin-lsp.doctor` knows the modules and their classpath,
+`kotlin-lsp.listJarClasses` walks a jar one level at a time, and the decompiler content provider
+already turns a `jar:` URI into readable source. Expansion is lazy at every level — a few hundred
+jars hold hundreds of thousands of classes, so eager listing would spend nearly all its time on
+nodes nobody opens.
+
+**One upstream bug is worked around here.** Decompiling a *Kotlin* class on `263.2689.0` fails with
+`no stub serializer for kotlin.PACKAGE_DIRECTIVE` when no Kotlin document has been opened in the
+session. Measured directly: cold, 0 of 8 `kotlin.collections` classes decompiled; with one Kotlin
+document open, 8 of 8 did, from byte-identical URIs. Java classes are unaffected. The tree is the
+only way to reach a library class without having navigated from Kotlin source first, so it opens one
+Kotlin file — unshown — before decompiling.
 
 ## Build and test
 

@@ -17,6 +17,9 @@ import {
     StreamInfo,
     TransportKind,
 } from 'vscode-languageclient/node';
+import { ExecuteCommand, registerDependencyExplorer } from './dependencyExplorer';
+import { registerGradleTasks } from './gradleTasks';
+import { registerLanguageModelTools } from './languageModelTools';
 import { registerTestExplorer } from './testExplorer';
 
 /**
@@ -34,6 +37,7 @@ let status: vscode.StatusBarItem;
 let output: vscode.OutputChannel;
 let indexed = false;
 let overlayPresent = false;
+let refreshDependencies: () => void = () => undefined;
 
 const DEFAULT_SERVER_DIR = path.join(os.homedir(), '.local', 'share', 'kotlin-lsp-enhanced');
 /** Schemes the server serves decompiled or bundled sources under. */
@@ -50,6 +54,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.commands.registerCommand('kotlinLspDev.clearCachesAndRestart', () => clearCachesAndRestart(context)),
         vscode.commands.registerCommand('kotlinLspDev.reloadWorkspace', () => reloadWorkspace(context)),
         vscode.commands.registerCommand('kotlinLspDev.showOutput', () => output.show(true)),
+        vscode.commands.registerCommand('kotlinLspDev.openServerPathSetting', () =>
+            vscode.commands.executeCommand('workbench.action.openSettings', 'kotlinLspDev.serverPath')),
         vscode.commands.registerCommand('kotlinLspDev.showFeatures', showFeatures),
         vscode.commands.registerCommand('kotlinLspDev.doctor', doctor),
         vscode.commands.registerCommand('kotlinLspDev.analyzeStackTrace', analyzeStackTrace),
@@ -71,6 +77,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
 
     registerTestExplorer(context, output);
+    refreshDependencies = registerDependencyExplorer(context, executeQuietly).refresh;
+    registerGradleTasks(context);
+    registerLanguageModelTools(context, executeQuietly);
     registerStackTraceLinks(context);
     registerDecompiledSources(context);
     registerDebugging(context);
@@ -337,6 +346,9 @@ function registerNotifications(): void {
     client.onNotification('intellij/ready-for-test', () => {
         indexed = true;
         setStatus('$(check) Kotlin', 'Workspace indexed — index-backed results are complete');
+        // The tree asked for modules before the import finished and was told there were none;
+        // without this it keeps saying so until something makes the user press refresh.
+        refreshDependencies();
     });
     client.onNotification('intellij/importLog', (params: { message?: string; failed?: boolean }) => {
         const message = (params?.message ?? '').trimEnd();
@@ -400,28 +412,41 @@ async function clearCachesAndRestart(context: vscode.ExtensionContext): Promise<
 
 // --- server-backed commands ------------------------------------------------------------------
 
-/** Runs one of the server's `workspace/executeCommand` commands. */
-async function execute<T>(command: string, args: unknown[]): Promise<T | undefined> {
+/**
+ * Runs one of the server's `workspace/executeCommand` commands.
+ *
+ * `quiet` suppresses the notifications, for callers the user did not personally invoke. A tree view
+ * refreshing itself, or a chat tool answering in its own words, must not raise a popup about a
+ * server that is merely still starting.
+ */
+async function execute<T>(command: string, args: unknown[], quiet = false): Promise<T | undefined> {
     if (!client || client.state !== State.Running) {
-        vscode.window.showWarningMessage('The Kotlin language server is not running.');
+        if (!quiet) vscode.window.showWarningMessage('The Kotlin language server is not running.');
         return undefined;
     }
     // Naming the cause matters: without it this reads as the feature being broken rather than
     // absent, and the fix (install the enhanced server) is not guessable from a command failure.
     if (command.startsWith('kotlin-lsp.') && !overlayPresent) {
-        vscode.window.showInformationMessage(
-            'This needs the enhanced server. The one in use is a stock kotlin-lsp release, which ' +
-                'does not provide this command.',
-        );
+        if (!quiet) {
+            vscode.window.showInformationMessage(
+                'This needs the enhanced server. The one in use is a stock kotlin-lsp release, which ' +
+                    'does not provide this command.',
+            );
+        }
         return undefined;
     }
     try {
         return (await client.sendRequest('workspace/executeCommand', { command, arguments: args })) as T;
     } catch (error) {
-        vscode.window.showErrorMessage(`${command} failed: ${error}`);
+        if (!quiet) vscode.window.showErrorMessage(`${command} failed: ${error}`);
+        else output.appendLine(`[${command}] ${error}`);
         return undefined;
     }
 }
+
+/** For background callers: same commands, no notifications. */
+const executeQuietly: ExecuteCommand = <T>(command: string, args: unknown[]) =>
+    execute<T>(command, args, true);
 
 /** Warns when an index-backed answer is about to be incomplete rather than merely wrong-looking. */
 function warnIfNotIndexed(what: string): void {
@@ -654,9 +679,16 @@ function registerDecompiledSources(context: vscode.ExtensionContext): void {
             const cached = decompiled.get(key);
             if (cached) return cached.code;
 
-            const result = await execute<DecompiledDocument>('decompile', [key]);
+            const result = await execute<DecompiledDocument>('decompile', [key], true);
             if (!result || typeof result.code !== 'string') {
-                return `// Could not decompile ${key}\n// The server returned no source for this entry.`;
+                // Saying only "could not decompile" sends people looking for a broken decompiler.
+                // The usual cause is the server refusing, and the reason is in the output channel.
+                return [
+                    `// Could not decompile ${key}`,
+                    '//',
+                    '// The server returned no source for this entry. The reason, if it gave one, is in',
+                    '// the "Kotlin (kotlin-lsp-dev)" output channel.',
+                ].join('\n');
             }
             decompiled.set(key, result);
             return result.code;

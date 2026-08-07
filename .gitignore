@@ -15,3 +15,9 @@ __pycache__/
 editors/vscode/node_modules/
 editors/vscode/out/
 editors/vscode/*.vsix
+
+# Generated when a server is run against this repository as its own workspace
+# (smoke-test.py points user.home / caches inside the workspace).
+.user-home/
+.server-system/
+.xdg/

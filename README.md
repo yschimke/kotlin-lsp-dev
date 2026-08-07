@@ -81,7 +81,7 @@ release is skipped (it stays unit-tested + PR-ready and activates once a release
 | **Inline variable** — new (code action) | ✅ runnable | unit tests + CI smoke test (applied edits compared to expected source) |
 | **Fill named call arguments** — new ([#175](https://github.com/Kotlin/kotlin-lsp/issues/175)) | ✅ runnable | unit tests + CI smoke test (applied edit compared to expected source) |
 | **Unused-import diagnostics** — enhancement ([#201](https://github.com/Kotlin/kotlin-lsp/issues/201)) | ✅ runnable | unit tests + CI smoke test (warning + `Unnecessary` tag) |
-| **Workspace commands** — doctor, stack traces, dependency search, FQN | ✅ runnable | unit tests + CI smoke test (all four commands) |
+| **Workspace commands** — doctor, stack traces, dependency search, FQN, jar package tree | ✅ runnable | unit tests + CI smoke test (all five commands) |
 | **Implement/override members** — declaration-generation code actions | ✅ runnable | unit tests + CI smoke test (direct implementation edit) |
 | **Code vision** code lenses (usages / implementations / run-test) — new | ✅ runnable | unit tests + CI smoke test (usage / implementation / run-test lenses, exact counts) |
 | **Closing-brace inlay hints** — enhancement | ✅ runnable | unit tests + CI smoke test (function + class hints, merged with built-ins) |

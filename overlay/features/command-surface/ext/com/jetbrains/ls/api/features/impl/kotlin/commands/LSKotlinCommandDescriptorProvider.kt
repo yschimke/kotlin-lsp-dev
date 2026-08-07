@@ -25,7 +25,8 @@ import java.nio.file.Path
 import kotlin.io.path.Path
 
 object LSKotlinCommandDescriptorProvider : LSCommandDescriptorProvider {
-    override val commandDescriptors get() = listOf(doctor, analyzeStackTrace, findTextInDependencyJars, copyFullyQualifiedName)
+    override val commandDescriptors
+        get() = listOf(doctor, analyzeStackTrace, findTextInDependencyJars, copyFullyQualifiedName, listJarClasses)
 
     private val doctor = descriptor("Kotlin workspace health report", "kotlin-lsp.doctor") { arguments ->
         expect(arguments, 0)
@@ -105,6 +106,38 @@ object LSKotlinCommandDescriptorProvider : LSCommandDescriptorProvider {
                 val file = uri.findVirtualFile()?.findPsiFile(project) ?: invalid("File not found: ${uri.uri}")
                 KotlinCommandComputation.fullyQualifiedName(file.findElementAt(offset))?.let(::JsonPrimitive) ?: JsonNull
             }
+        }
+    }
+
+    /**
+     * One level of a dependency jar's package tree, so a client can present dependencies as a tree
+     * that expands on demand rather than listing thousands of classes up front.
+     *
+     * The jar is named by path rather than chosen from the classpath here because the caller got it
+     * from `kotlin-lsp.doctor` in the first place; re-deriving the classpath per expansion would
+     * cost a read action for no added truth. Only entry names are read, never their contents.
+     */
+    private val listJarClasses = descriptor("List classes in a dependency jar", "kotlin-lsp.listJarClasses") { arguments ->
+        if (arguments.size !in 1..2) invalid("Expected 1 or 2 arguments, got ${arguments.size}")
+        val jar = (arguments[0] as? JsonPrimitive)?.contentOrNull ?: invalid("Argument 1 must be a jar path")
+        val prefix = if (arguments.size == 2) {
+            (arguments[1] as? JsonPrimitive)?.contentOrNull ?: invalid("Argument 2 must be a package name")
+        } else {
+            ""
+        }
+        val listing = KotlinCommandComputation.listJarClasses(Path(jar), prefix)
+        buildJsonObject {
+            putJsonArray("packages") { listing.packages.forEach { add(it) } }
+            putJsonArray("classes") {
+                listing.classes.forEach { entry ->
+                    addJsonObject {
+                        put("name", entry.name)
+                        put("entry", entry.entry)
+                    }
+                }
+            }
+            // A silently shortened list reads as a complete one, so say when it was cut.
+            put("truncated", listing.truncated)
         }
     }
 

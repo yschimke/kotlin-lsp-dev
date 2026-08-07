@@ -21,6 +21,7 @@ import os
 import shutil
 import sys
 import tempfile
+import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -39,6 +40,7 @@ REQUIRED_COMMANDS = {
     "kotlin-lsp.analyzeStackTrace": "Kotlin: Analyze JVM stack trace",
     "kotlin-lsp.findTextInDependencyJars": "Kotlin: Find text in dependency jars",
     "kotlin-lsp.copyFullyQualifiedName": "Kotlin: Copy fully-qualified name",
+    "kotlin-lsp.listJarClasses": "the Kotlin project tree (expanding a dependency jar)",
 }
 
 FIXTURE = """\
@@ -119,6 +121,9 @@ def main():
                     print("  WRONG    %-38s expected {code: str}, got %s"
                           % ("decompile", type(decompiled).__name__))
                     failures.append("decompile result shape")
+
+        if "kotlin-lsp.listJarClasses" in advertised:
+            failures.extend(check_jar_listing(lsp, root))
     finally:
         lsp.shutdown()
         shutil.rmtree(root, ignore_errors=True)
@@ -130,6 +135,87 @@ def main():
         return 1
     print("\n[contract] PASS -- the client's server assumptions hold")
     return 0
+
+
+def check_jar_listing(lsp, root):
+    """The project tree's two assumptions: the listing shape, and that its URIs decompile.
+
+    The tree turns a classpath entry `jar:///x.jar!/` plus an entry name into
+    `jar:///x.jar!/pkg/Cls.class` and hands that to `decompile`. That construction is the part that
+    fails silently -- a wrong URI shape gives every class in the tree a "could not decompile"
+    placeholder, which reads as the decompiler being broken rather than the tree being wrong.
+    """
+    failures = []
+    jar = os.path.join(root, "contract-listing.jar")
+    with zipfile.ZipFile(jar, "w") as archive:
+        for entry in ("contract/api/Thing.class", "contract/api/nested/Inner.class"):
+            archive.writestr(entry, b"\0")
+
+    listing = execute(lsp, "kotlin-lsp.listJarClasses", [jar, "contract.api"])
+    if not isinstance(listing, dict) or not isinstance(listing.get("classes"), list):
+        print("  WRONG    %-38s expected {packages, classes, truncated}, got %r"
+              % ("kotlin-lsp.listJarClasses", listing))
+        return ["kotlin-lsp.listJarClasses result shape"]
+    names = [entry.get("name") for entry in listing["classes"]]
+    if names != ["Thing"] or listing.get("packages") != ["nested"]:
+        print("  WRONG    %-38s expected one class and one subpackage, got %r"
+              % ("kotlin-lsp.listJarClasses", listing))
+        failures.append("kotlin-lsp.listJarClasses contents")
+    else:
+        print("  ok       %-38s returns {packages, classes, truncated}" % "kotlin-lsp.listJarClasses")
+
+    # The round trip only means something against a jar the project actually resolved, so it runs
+    # when the workspace has one and says so plainly when it does not.
+    report = execute(lsp, "kotlin-lsp.doctor", []) or {}
+    jars = [entry for module in report.get("modules", []) for entry in module.get("classpath", [])
+            if entry.startswith("jar:")]
+    if not jars:
+        # This workspace's only non-source dependency is the JDK, which resolves through `jrt:`.
+        # The round trip was instead verified against a real Gradle project (this repository):
+        # 8 of 8 `kotlin.collections` classes decompiled from tree-constructed URIs. See
+        # "Kotlin project view" in editors/vscode/README.md for the cold-start caveat.
+        print("  skipped  %-38s no jar on this workspace's classpath to open"
+              % "project tree -> decompile")
+        return failures
+
+    target = jars[0]
+    contents = execute(lsp, "kotlin-lsp.listJarClasses", [jar_path_of(target)]) or {}
+    entry = first_class(lsp, target, contents)
+    if entry is None:
+        print("  skipped  %-38s no class found in %s" % ("project tree -> decompile", target))
+        return failures
+    constructed = target + entry
+    decompiled = execute(lsp, "decompile", [constructed])
+    if isinstance(decompiled, dict) and isinstance(decompiled.get("code"), str):
+        print("  ok       %-38s %s decompiles" % ("project tree -> decompile", entry))
+    else:
+        print("  WRONG    %-38s %s did not decompile" % ("project tree -> decompile", constructed))
+        failures.append("project tree URI construction")
+    return failures
+
+
+def jar_path_of(url):
+    """`jar:///home/me/x.jar!/` -> `/home/me/x.jar`, the form the listing command takes."""
+    return url[len("jar://"):].rstrip("/").rstrip("!")
+
+
+def first_class(lsp, url, listing, prefix="", depth=0):
+    """The first class entry anywhere in the jar, descending into packages as needed.
+
+    Each level returns only the immediate child package names, so the caller carries the prefix --
+    the same thing the tree does when it expands a node.
+    """
+    if listing.get("classes"):
+        return listing["classes"][0]["entry"]
+    if depth >= 4:
+        return None
+    for package in listing.get("packages", []):
+        qualified = "%s.%s" % (prefix, package) if prefix else package
+        deeper = execute(lsp, "kotlin-lsp.listJarClasses", [jar_path_of(url), qualified]) or {}
+        found = first_class(lsp, url, deeper, qualified, depth + 1)
+        if found:
+            return found
+    return None
 
 
 def execute(lsp, command, arguments):

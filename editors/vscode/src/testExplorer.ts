@@ -95,9 +95,47 @@ export function registerTestExplorer(
     controller.createRunProfile(
         'Run',
         vscode.TestRunProfileKind.Run,
-        (request, token) => runTests(controller, byId, request, token, output),
+        (request, token) => runTests(controller, byId, request, token, output, false),
         true,
     );
+    controller.createRunProfile(
+        'Debug',
+        vscode.TestRunProfileKind.Debug,
+        (request, token) => runTests(controller, byId, request, token, output, true),
+        false,
+    );
+}
+
+/** Gradle's `--debug-jvm` suspends the test JVM here and waits for a debugger. */
+const GRADLE_DEBUG_PORT = 5005;
+
+/**
+ * Attaches the debugger to the suspended test JVM.
+ *
+ * `--debug-jvm` suspends *before* the tests run, so the attach has to happen while the Gradle task
+ * is still going -- waiting for the task to end would deadlock, since it cannot end until something
+ * attaches. The port is not open the instant the task starts either, so this retries briefly.
+ */
+async function attachDebugger(
+    folder: vscode.WorkspaceFolder,
+    token: vscode.CancellationToken,
+    output: vscode.OutputChannel,
+): Promise<void> {
+    for (let attempt = 0; attempt < 30 && !token.isCancellationRequested; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const started = await vscode.debug.startDebugging(folder, {
+            type: 'kotlinLspDev',
+            request: 'attach',
+            name: 'Kotlin: Debug test',
+            hostName: 'localhost',
+            port: GRADLE_DEBUG_PORT,
+        });
+        if (started) {
+            output.appendLine(`[test] debugger attached on port ${GRADLE_DEBUG_PORT}`);
+            return;
+        }
+    }
+    output.appendLine(`[test] could not attach a debugger on port ${GRADLE_DEBUG_PORT}`);
 }
 
 async function runTests(
@@ -106,6 +144,7 @@ async function runTests(
     request: vscode.TestRunRequest,
     token: vscode.CancellationToken,
     output: vscode.OutputChannel,
+    debug: boolean,
 ): Promise<void> {
     const run = controller.createTestRun(request);
 
@@ -151,7 +190,9 @@ async function runTests(
     selected.forEach((item) => run.started(item));
 
     const filters = selected.map((item) => `--tests "${item.id}"`).join(' ');
-    const command = `${process.platform === 'win32' ? wrapperName : `./${wrapperName}`} test ${filters}`;
+    const command =
+        `${process.platform === 'win32' ? wrapperName : `./${wrapperName}`} test ${filters}` +
+        (debug ? ' --debug-jvm' : '');
     output.appendLine(`[test] ${command}`);
 
     const execution = await vscode.tasks.executeTask(
@@ -163,6 +204,10 @@ async function runTests(
             new vscode.ShellExecution(command, { cwd: folder.uri.fsPath }),
         ),
     );
+
+    // Deliberately not awaited: the JVM is suspended waiting for a debugger, so the task cannot
+    // finish until this attaches, and awaiting it here would deadlock the run.
+    if (debug) void attachDebugger(folder, token, output);
 
     await new Promise<void>((resolve) => {
         const ended = vscode.tasks.onDidEndTaskProcess((event) => {
